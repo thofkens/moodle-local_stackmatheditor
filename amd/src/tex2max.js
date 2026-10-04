@@ -92,6 +92,7 @@ define(['local_stackmatheditor/operator_map'], function(OperatorMap) {
         'sqrt', 'abs', 'sgn', 'exp', 'log', 'ln',
         'sin', 'cos', 'tan', 'cot', 'sec', 'csc',
         'arcsin', 'arccos', 'arctan', 'asin', 'acos', 'atan',
+        'bgsin', 'bgcos', 'bgtan',
         'sinh', 'cosh', 'tanh', 'binomial', 'integrate', 'diff',
         // Maxima functions the editor has to know as complete tokens (#61): without them
         // max(x,y) picks up an implicit multiplication star before the bracket.
@@ -1072,6 +1073,10 @@ define(['local_stackmatheditor/operator_map'], function(OperatorMap) {
 
             // Applied to an argument: a function call, not part of a name.
             if (/^(\(|\\left|\{|\^|_)/.test(after)) {
+                // Belgian cyclometric names bgsin/bgcos/bgtan: MathQuill splits them into bg\sin.
+                if (/^(sin|cos|tan)$/.test(name) && /(^|[^A-Za-z])bg$/.test(s.substring(0, offset))) {
+                    return name;
+                }
                 return match;
             }
 

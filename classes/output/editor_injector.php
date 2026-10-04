@@ -136,7 +136,7 @@ class editor_injector {
         if (in_array($PAGE->pagetype, ['mod-quiz-attempt', 'mod-quiz-review'])) {
             return self::resolve_attempt_configs($cmid);
         }
-        if (in_array($PAGE->pagetype, ['question-preview', 'question-bank-previewquestion'])) {
+        if (in_array($PAGE->pagetype, ['question-preview', 'question-bank-previewquestion', 'question-bank-previewquestion-preview'])) {
             return self::resolve_preview_configs($cmid);
         }
         // Mod-adaptivequiz-view and any future page types: no per-slot config.

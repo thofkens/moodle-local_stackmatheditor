@@ -43,6 +43,7 @@ class hook_callbacks {
         'mod-quiz-review',
         'question-preview',
         'question-bank-previewquestion',
+        'question-bank-previewquestion-preview',
         'mod-adaptivequiz-view',
     ];
 
