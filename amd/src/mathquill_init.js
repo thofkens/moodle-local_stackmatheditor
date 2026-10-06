@@ -224,6 +224,16 @@ define([
         }
 
         var MQ = window.MathQuill.getInterface(2);
+        // MathQuill's default operator names plus the Belgian cyclometric names, so that
+        // Bgsin is shown upright as one word instead of the italic product B·g·sin.
+        MQ.config({autoOperatorNames: 'arg deg det dim exp gcd hom inf ker lg lim ln log max min sup'
+            + ' limsup liminf injlim projlim Pr gcf hcf lcm proj span'
+            + ' sin cos tan sec cosec csc cotan cot ctg'
+            + ' arcsin arccos arctan arcsec arccosec arccsc arccotan arccot arcctg'
+            + ' sinh cosh tanh sech cosech csch cotanh coth ctgh'
+            + ' arsinh arcosh artanh arsech arcosech arcsch arcotanh arcoth arctgh'
+            + ' arcsinh arccosh arctanh arcsech arccosech arccsch arccotanh arccoth arcctgh'
+            + ' Bgsin Bgcos Bgtan bgsin bgcos bgtan'});
         dbg('MathQuill interface ready.');
 
         // MathJax compatibility.

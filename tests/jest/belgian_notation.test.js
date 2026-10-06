@@ -25,6 +25,7 @@
 const {loadAmd} = require('./amd_loader');
 
 const tex2max = loadAmd('tex2max');
+const max2tex = loadAmd('max2tex');
 
 describe('Belgian notation', () => {
     test.each([
@@ -37,7 +38,19 @@ describe('Belgian notation', () => {
         ['\\sin^{-1}\\left(x\\right)', 'sin^(-1)(x)'],
         ['\\frac{4\\sqrt{1-5^{2x}}}{\\ln\\left(50\\right)}', '(4sqrt(1-5^(2x)))/(log(50))'],
         ['\\frac{\\frac{1}{2}}{3}', '((1)/(2))/(3)'],
+        ['\\operatorname{Bgsin}\\left(x\\right)', 'bgsin(x)'],
+        ['\\operatorname{Bgsin}^2\\left(4t\\right)', 'bgsin(4t)^(2)'],
+        ['\\frac{\\operatorname{Bgcos}\\left(3x\\right)}{2}', '(bgcos(3x))/(2)'],
     ])('%s -> %s', (latex, maxima) => {
         expect(tex2max.convert(latex, {variableMode: 'stack'})).toBe(maxima);
+    });
+});
+
+describe('Belgian notation back to the editor', () => {
+    test.each([
+        ['bgsin(5^x)', 'Bg\\sin\\left(5^x\\right)'],
+        ['asin(2*x)', 'Bg\\sin\\left(2x\\right)'],
+    ])('%s -> %s', (maxima, latex) => {
+        expect(max2tex.convert(maxima, {variableMode: 'stack'})).toBe(latex);
     });
 });
