@@ -1102,6 +1102,63 @@ define(['local_stackmatheditor/operator_map'], function(OperatorMap) {
     }
 
     /**
+     * Write the Belgian prefix of bgsin/bgcos/bgtan in lower case and drop spaces after it:
+     * "Bg\\ \\sin" -> "bg\\sin", so that mergeGluedOperatorNames() recognises it.
+     *
+     * @param {string} s LaTeX input.
+     * @returns {string} LaTeX with a normalised prefix.
+     */
+    function normaliseBgPrefix(s) {
+        return s.replace(/(^|[^A-Za-z\\])[Bb][Gg](?:\\ | )*(?=\\(?:sin|cos|tan)(?![A-Za-z]))/g, '$1bg');
+    }
+
+    /**
+     * Move a power written on a function name behind its argument, the textbook notation
+     * students copy: \\cos^3\\left(x\\right) -> \\cos\\left(x\\right)^{3}. STACK refuses cos^3(x).
+     * Only positive integer powers: sin^{-1} stays as typed.
+     *
+     * @param {string} s LaTeX input (after mergeGluedOperatorNames).
+     * @returns {string} LaTeX with the power behind the argument.
+     */
+    function movePowerBehindArgument(s) {
+        var re = /(\\(?:sin|cos|tan|cot|sec|csc|ln|log)|bg(?:sin|cos|tan))\^(?:\{\s*(\d+)\s*\}|(\d))\s*\\left\(/;
+        var m;
+        var open;
+        var close;
+        var maxIter = 20;
+
+        while ((m = re.exec(s)) !== null && maxIter-- > 0) {
+            open = m.index + m[0].length - 1;
+            close = matchingBracket(s, open);
+            if (close === -1) {
+                return s;
+            }
+            s = s.substring(0, m.index) + m[1] + '\\left(' + s.substring(open + 1, close + 1)
+                + '^{' + (m[2] || m[3]) + '}' + s.substring(close + 1);
+        }
+        return s;
+    }
+
+    /**
+     * Replace the first \\frac{A}{B} by (A)/(B). The arguments may nest braces to any depth
+     * (\\frac{4\\sqrt{1-5^{2x}}}{3}); a regular expression only handled one level and left
+     * "frac" in the CAS string.
+     *
+     * @param {string} s LaTeX.
+     * @returns {string} LaTeX with one fraction less, or unchanged when it is incomplete.
+     */
+    function replaceFirstFraction(s) {
+        var start = s.indexOf('\\frac');
+        var num = readLatexArgument(s, start + 5);
+        var den = num ? readLatexArgument(s, num.end) : null;
+
+        if (!den) {
+            return s;
+        }
+        return s.substring(0, start) + '(' + num.text + ')/(' + den.text + ')' + s.substring(den.end);
+    }
+
+    /**
      * Put a token boundary in front of every LaTeX control word.
      *
      * Only control words (backslash + letters) are marked; the LaTeX row break
@@ -1585,7 +1642,9 @@ define(['local_stackmatheditor/operator_map'], function(OperatorMap) {
         // stack mode ("gamma (x)", "epsilon _0").
         s = s.replace(/(\\[a-zA-Z]+)\s+(?=[^A-Za-z0-9\s])/g, '$1');
         s = convertCasesToAndRelations(s);
+        s = normaliseBgPrefix(s);
         s = mergeGluedOperatorNames(s);
+        s = movePowerBehindArgument(s);
         s = markControlWords(s);
         // Set braces survive the generic brace removal below (#39: no
         // backslash may reach the CAS string).
@@ -1609,10 +1668,7 @@ define(['local_stackmatheditor/operator_map'], function(OperatorMap) {
 
         while (s.indexOf('\\frac') !== -1 && maxIter > 0) {
             maxIter--;
-            s = s.replace(
-                /\\frac\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/,
-                '($1)/($2)'
-            );
+            s = replaceFirstFraction(s);
         }
 
         // Mixed-fraction guard: N(p)/(q) → (N+p/q).
