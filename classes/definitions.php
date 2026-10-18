@@ -130,7 +130,7 @@ class definitions {
                 'elements'        => [
                     ['display' => "x\u{207F}", 'write' => '^{}',
                         'tooltip' => get_string('btn_power', $p)],
-                    ['display' => "\u{221A}", 'write' => '\\sqrt{}',
+                    ['display' => "\u{221A}", 'write' => '\\sqrt{}', 'left' => 1,
                         'tooltip' => get_string('btn_sqrt', $p)],
                     ['display' => "ⁿ\u{221A}", 'write' => '\\nthroot{}{}',
                         'tooltip' => get_string('btn_nthroot', $p)],
