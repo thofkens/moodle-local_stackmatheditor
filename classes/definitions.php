@@ -128,11 +128,11 @@ class definitions {
                 'label'           => get_string('group_power_root', $p),
                 'default_enabled' => true,
                 'elements'        => [
-                    ['display' => "x\u{207F}", 'write' => '^{}',
+                    ['display' => "x\u{207F}", 'cmd' => '^',
                         'tooltip' => get_string('btn_power', $p)],
                     ['display' => "\u{221A}", 'write' => '\\sqrt{}', 'left' => 1,
                         'tooltip' => get_string('btn_sqrt', $p)],
-                    ['display' => "ⁿ\u{221A}", 'write' => '\\nthroot{}{}',
+                    ['display' => "ⁿ\u{221A}", 'cmd' => '\\nthroot',
                         'tooltip' => get_string('btn_nthroot', $p)],
                 ],
             ],
