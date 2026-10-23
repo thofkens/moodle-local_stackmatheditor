@@ -1637,6 +1637,12 @@ define(['local_stackmatheditor/operator_map'], function(OperatorMap) {
         var local = {problems: ctx.problems, placeholders: placeholders};
 
         s = s.replace(/\s+/g, ' ').trim();
+        // \ln|x-2| (MathQuill: \ln\left|x-2\right|) is ln(|x-2|). Without brackets the bar rule
+        // below leaves "log abs(x-2)" and STACK rejects the variable log.
+        s = s.replace(
+            /\\(ln|log)\s*(?:\\left\s*)?\|([^|]+?)(?:\\right\s*)?\|/g,
+            '\\$1\\left(\\left|$2\\right|\\right)'
+        );
         s = extractIntegrals(s, opts, local);
         s = extractDerivatives(s, opts, local);
         // A space after a control word only ends the command's name (LaTeX ignores it). In front
