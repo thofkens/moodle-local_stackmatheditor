@@ -10,5 +10,9 @@ filter:
     - tests/playwright/node_modules
     - tests/playwright/playwright-report
     - tests/playwright/test-results
+    - tests/a11y-nvda/node_modules
+    - tests/a11y-nvda/playwright-report
+    - tests/a11y-nvda/test-results
+    - tests/a11y-nvda/transcripts
     - tests/load/apache-jmeter-5.6.3
     - tests/load/jmeter-report

@@ -22,6 +22,7 @@ use core_external\external_multiple_structure;
 use core_external\external_single_structure;
 use core_external\external_value;
 use local_stackmatheditor\config_manager;
+use local_stackmatheditor\quiz_helper;
 
 /**
  * External API: retrieve MathQuill toolbar configuration for a set of questions.
@@ -55,9 +56,14 @@ class get_config extends external_api {
     /**
      * Return toolbar configs for the given question IDs within a quiz.
      *
-     * Each question ID is resolved to its question bank entry ID, then the
-     * full config lookup chain (question → quiz-default → instance-default)
-     * is applied via config_manager::get_configs().
+     * The caller has to prove three things before anything is answered: the course module
+     * is a quiz, the user may view it, and each question asked about is used by that quiz.
+     * Question ids that fail the last test are dropped from the answer - fail closed - rather
+     * than resolved against the whole question bank.
+     *
+     * Each remaining question ID is resolved to its question bank entry ID, then the full config
+     * lookup chain (question → quiz-default → instance-default) is applied via
+     * config_manager::get_configs().
      *
      * @param int   $cmid        Course module ID of the quiz.
      * @param int[] $questionids List of question IDs (version-specific).
@@ -69,15 +75,28 @@ class get_config extends external_api {
             ['cmid' => $cmid, 'questionids' => $questionids]
         );
 
-        $context = \context_module::instance($params['cmid']);
+        // The course module must really be a quiz: a context id alone says nothing about what
+        // the module is.
+        $cm = get_coursemodule_from_id('quiz', $params['cmid'], 0, false, MUST_EXIST);
+
+        $context = \context_module::instance($cm->id);
         self::validate_context($context);
+
+        // A valid context is not an authorisation. Being able to see the quiz is the minimum this
+        // endpoint requires.
+        require_capability('mod/quiz:view', $context);
+
+        // And a valid question id does not prove the question belongs to this quiz. Only the
+        // entries the quiz actually uses may be answered for; anything else is dropped rather
+        // than resolved globally.
+        $allowed = quiz_helper::load_quiz_qbeids((int) $cm->instance);
 
         // Resolve question IDs to question bank entry IDs.
         $qbeids     = [];
         $qbeidmap   = [];
         foreach ($params['questionids'] as $qid) {
             $qbeid = config_manager::resolve_qbeid($qid);
-            if ($qbeid) {
+            if ($qbeid && isset($allowed[$qbeid])) {
                 $qbeids[]          = $qbeid;
                 $qbeidmap[$qbeid]  = $qid;
             }

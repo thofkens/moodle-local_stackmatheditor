@@ -20,8 +20,8 @@
  * Data is read from a JSON script element (#sme-configure-data)
  * to avoid the 1024-char limit of js_call_amd().
  *
- * On mod-quiz-edit, also inserts a "STACK MathQuill-Editor einrichten"
- * option into the quiz navigation <select> (Anforderung B).
+ * On mod-quiz-edit, also inserts a quiz-level configure option
+ * into the quiz navigation <select>.
  * The STACK check already happened in PHP — if quizConfigureUrl is
  * present in the data object, STACK questions exist in this quiz.
  *
@@ -116,8 +116,10 @@ define(['jquery'], function($) {
         return $('<a>')
             .attr('href', href)
             .attr('title', title)
-            .addClass('sme-configure-edit-link ml-1 mr-1')
-            .css({'color': '#0f6cbf', 'font-size': '1em', 'text-decoration': 'none'})
+            // Spacing for Bootstrap 4 (ml/mr, Moodle 4.5) and 5 (ms/me, Moodle 5.x); the colour is
+            // the theme's link colour, so it follows the dark colour mode.
+            .addClass('sme-configure-edit-link ml-1 mr-1 ms-1 me-1')
+            .css({'font-size': '1em', 'text-decoration': 'none'})
             .append($('<i>').addClass('fa fa-calculator fa-fw').attr('aria-hidden', 'true'));
     }
 
@@ -203,17 +205,12 @@ define(['jquery'], function($) {
     // ── Edit page ─────────────────────────────────────────────────────────────
 
     /**
-     * Insert the quiz-level configure option into the navigation <select>.
+     * Inject a "Set up STACK MathQuill Editor" option into the quiz edit nav selector.
      *
      * Moodle's YUI urlselect module redirects to window.location.href = value,
      * so a full URL as option value works. We also bind our own handler with
      * stopImmediatePropagation to ensure reliable navigation regardless of
      * which Moodle version's handler fires first.
-     *
-     * @param {Object} data Configuration data from PHP.
-     */
-    /**
-     * Inject a "Set up STACK MathQuill Editor" option into the quiz edit nav selector.
      *
      * @param {Object} data Configuration data from the server.
      * @returns {void}
@@ -267,7 +264,7 @@ define(['jquery'], function($) {
      * @returns {void}
      */
     function injectEditLinks(data) {
-        // 1. Per-question icon links (existing behaviour).
+        // 1. Per-question icon links.
         var questions = data.questions || [];
         var count = 0;
         var i;
@@ -278,7 +275,7 @@ define(['jquery'], function($) {
         }
         dbg('edit: ' + count + '/' + questions.length + ' question links injected');
 
-        // 2. Quiz-level option in navigation selector (Anforderung B).
+        // 2. Quiz-level option in navigation selector.
         injectQuizNavOption(data);
     }
 

@@ -83,64 +83,32 @@ final class config_manager_test extends advanced_testcase {
 
 
     /**
-     * get_instance_variable_mode() returns the normalised IMPLICIT_* constant
-     * for any stored value, including the legacy VAR_SINGLE / VAR_MULTI aliases.
+     * Implicit multiplication is STACK's decision, not the editor's (#65).
      *
-     * Background: the variable-mode system was extended after the initial
-     * implementation. Legacy values 'single' / 'multi' are stored in older
-     * Moodle config records and are transparently mapped to the canonical
-     * 'explicit_single' / 'explicit_multi' constants by normalise_implicit_mode().
-     * New installations store the IMPLICIT_* constants directly.
+     * The editor used to keep a setting of its own. It no longer does: whatever an older version
+     * stored, the converter hands STACK what was typed.
      *
-     * @dataProvider variable_mode_provider
-     * @param string $stored   Value written to config (empty = config deleted).
-     * @param string $expected Expected return value of get_instance_variable_mode().
      * @return void
      */
-    public function test_variable_mode_normalisation(
-        string $stored,
-        string $expected
-    ): void {
+    public function test_variable_mode_is_always_stack(): void {
         $this->resetAfterTest();
-        if ($stored === '') {
-            unset_config('variablemode', 'local_stackmatheditor');
-        } else {
-            set_config('variablemode', $stored, 'local_stackmatheditor');
-        }
-        $mode = config_manager::get_instance_variable_mode();
-        $this->assertSame($expected, $mode);
-    }
 
-    /**
-     * Data provider for test_variable_mode_normalisation.
-     *
-     * @return array<string, array{string, string}>
-     */
-    public static function variable_mode_provider(): array {
-        return [
-            // Unset config → default is IMPLICIT_STACK.
-            'unset defaults to stack'
-                => ['', definitions::IMPLICIT_STACK],
-            // Legacy aliases stored before the mode system was extended.
-            'legacy single alias'
-                => [definitions::VAR_SINGLE, definitions::IMPLICIT_EXPLICIT_SINGLE],
-            'legacy multi alias'
-                => [definitions::VAR_MULTI, definitions::IMPLICIT_EXPLICIT_MULTI],
-            // New canonical IMPLICIT_* values stored directly.
-            'explicit_single pass-through'
-                => [definitions::IMPLICIT_EXPLICIT_SINGLE, definitions::IMPLICIT_EXPLICIT_SINGLE],
-            'explicit_multi pass-through'
-                => [definitions::IMPLICIT_EXPLICIT_MULTI, definitions::IMPLICIT_EXPLICIT_MULTI],
-            'space_single pass-through'
-                => [definitions::IMPLICIT_SPACE_SINGLE, definitions::IMPLICIT_SPACE_SINGLE],
-            'space_multi pass-through'
-                => [definitions::IMPLICIT_SPACE_MULTI, definitions::IMPLICIT_SPACE_MULTI],
-            'stack pass-through'
-                => [definitions::IMPLICIT_STACK, definitions::IMPLICIT_STACK],
-            // Unknown value → safe fallback to IMPLICIT_STACK.
-            'unknown value falls back to stack'
-                => ['something_unknown', definitions::IMPLICIT_STACK],
-        ];
+        $this->assertSame(
+            definitions::IMPLICIT_STACK,
+            config_manager::get_instance_variable_mode()
+        );
+
+        foreach (['explicit_single', 'explicit_multi', 'space_single', 'nonsense', ''] as $stored) {
+            set_config('variablemode', $stored, 'local_stackmatheditor');
+            $this->assertSame(
+                definitions::IMPLICIT_STACK,
+                config_manager::get_instance_variable_mode(),
+                "a stored value ($stored) must not bring the setting back"
+            );
+        }
+
+        $base = config_manager::get_instance_base_config();
+        $this->assertSame(definitions::IMPLICIT_STACK, $base['_variableMode']);
     }
 
 

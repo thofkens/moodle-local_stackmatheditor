@@ -24,7 +24,8 @@
 #
 # Environment (all optional):
 #   MOODLE_BRANCH (MOODLE_405_STABLE), MOODLE_WWWROOT (http://127.0.0.1:8000),
-#   MOODLE_DATAROOT (/tmp/moodledata), DB_NAME/DB_USER/DB_PASS (moodle/moodle/moodle),
+#   MOODLE_DATAROOT (/tmp/moodledata), DB_TYPE (pgsql; or mariadb), DB_PORT (5432 / 3306),
+#   DB_NAME/DB_USER/DB_PASS (moodle/moodle/moodle),
 #   MOODLE_ADMIN_PASS (Admin!23), STACK_BRANCH (master), ADAPTIVEMULTIPART_BRANCH (master),
 #   DFEXPLICITVAILDATE_BRANCH (master), DFCBMEXPLICITVAILDATE_BRANCH (master),
 #   IMPORTASVERSION_BRANCH (main).
@@ -38,6 +39,12 @@ MOODLE_BRANCH="${MOODLE_BRANCH:-MOODLE_405_STABLE}"
 MOODLE_WWWROOT="${MOODLE_WWWROOT:-http://127.0.0.1:8000}"
 MOODLE_DATAROOT="${MOODLE_DATAROOT:-/tmp/moodledata}"
 MOODLE_ADMIN_PASS="${MOODLE_ADMIN_PASS:-Admin!23}"
+DB_TYPE="${DB_TYPE:-pgsql}"
+if [[ "$DB_TYPE" == "pgsql" ]]; then
+  DB_PORT="${DB_PORT:-5432}"
+else
+  DB_PORT="${DB_PORT:-3306}"
+fi
 DB_NAME="${DB_NAME:-moodle}"
 DB_USER="${DB_USER:-moodle}"
 DB_PASS="${DB_PASS:-moodle}"
@@ -58,6 +65,10 @@ git clone --quiet --depth 1 --branch "$MOODLE_BRANCH" https://github.com/moodle/
 web=moodle
 if [[ -d moodle/public ]]; then
   web=moodle/public
+  # Moodle 5.1+ no longer ships its third-party PHP libraries; without them the routed API
+  # (r.php, e.g. saving a user preference such as the colour mode) fails with a missing class.
+  echo "Composer dependencies"
+  composer install --working-dir=moodle --no-dev --no-interaction --no-progress --quiet
 fi
 
 echo "Plugins:"
@@ -86,9 +97,9 @@ fi
 # install.php writes config.php itself and aborts when one exists. It needs an existing,
 # writable dataroot OUTSIDE the Moodle tree.
 mkdir -p "$MOODLE_DATAROOT"
-php "$web/admin/cli/install.php" \
+php moodle/admin/cli/install.php \
   --non-interactive --agree-license \
-  --dbtype=pgsql --dbhost=127.0.0.1 --dbport=5432 --dbname="$DB_NAME" \
+  --dbtype="$DB_TYPE" --dbhost=127.0.0.1 --dbport="$DB_PORT" --dbname="$DB_NAME" \
   --dbuser="$DB_USER" --dbpass="$DB_PASS" \
   --wwwroot="$MOODLE_WWWROOT" --dataroot="$MOODLE_DATAROOT" \
   --fullname="STACK MathQuill Editor CI" --shortname="SMECI" \

@@ -82,3 +82,15 @@ coverage.xml
 /ci/
 /moodle/
 /moodledata/
+
+# NVDA suite: installed dependencies and recorded evidence (#69).
+tests/a11y-nvda/node_modules/
+tests/a11y-nvda/playwright-report/
+tests/a11y-nvda/test-results/
+tests/a11y-nvda/transcripts/
+tests/a11y-nvda/nvda-results.json
+tests/playwright/transcripts/
+
+# Python byte code of the load-test helper
+__pycache__/
+*.py[cod]

@@ -14,7 +14,7 @@
 // along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * Local validation messages for visible but not yet serialisable structures (#44).
+ * Local validation messages for visible but not yet serialisable structures.
  *
  * An incomplete integral stays in the editor as the student wrote it, but no CAS expression is
  * invented for it; this module tells the student what is missing, right below the editor.

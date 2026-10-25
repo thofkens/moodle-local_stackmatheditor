@@ -24,7 +24,7 @@
  * Note: this is a heuristic check only — full validation (HTML,
  * variable contracts) requires moodle-plugin-ci mustache in CI.
  *
- * @package    local_coursectrl
+ * @package    local_stackmatheditor
  * @copyright  2026 Ralf Erlebach
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */

@@ -105,4 +105,117 @@ async function open(page, url) {
     await expect(page.locator('body')).not.toContainText(/Coding error|Exception|Debug info/i);
 }
 
-module.exports = {env, fillStable, loginAs, open};
+// Contexts opened through openPage() and not closed yet.
+const opened = new Set();
+
+/**
+ * Open a page in a browser context of its own.
+ *
+ * Every spec that needs a second user - an administrator changing a setting, a student looking
+ * at the result - used `(await browser.newContext()).newPage()` and later closed the page. That
+ * leaves the context: Playwright closes only the one it created itself. With video and trace
+ * switched on, every left-over context keeps a recorder running, and the browser is the same
+ * one for the whole run. By the time the permissions spec asked for its next context there were
+ * about ten of them, and the request was answered with "Failed to create browser context" or not
+ * at all - on some runs, not on others. Contexts opened here are remembered, so they can be
+ * closed whatever happens to the test.
+ *
+ * @param {import('@playwright/test').Browser} browser The browser.
+ * @param {Object} [options] Options for browser.newContext().
+ * @returns {Promise<import('@playwright/test').Page>} A page in a new context.
+ */
+async function openPage(browser, options) {
+    const context = await browser.newContext(options);
+
+    opened.add(context);
+    return context.newPage();
+}
+
+/**
+ * Close a page together with its context.
+ *
+ * @param {import('@playwright/test').Page} page A page from openPage().
+ * @returns {Promise<void>}
+ */
+async function closePage(page) {
+    const context = page.context();
+
+    opened.delete(context);
+    await context.close();
+}
+
+/**
+ * Close every context openPage() opened and nobody closed - a test that failed half way, say.
+ * For `test.afterEach` or `test.afterAll`.
+ *
+ * @returns {Promise<void>}
+ */
+async function closeLeftovers() {
+    const contexts = Array.from(opened);
+
+    opened.clear();
+    await Promise.all(contexts.map((context) => context.close().catch(() => undefined)));
+}
+
+/**
+ * Whether a missing fixture fails the test instead of skipping it (#89).
+ *
+ * The CI workflows set SME_STRICT_FIXTURES=1: there the seed promises every quiz, input and
+ * setting a spec needs, so a missing one is a broken seed or a broken plugin and must turn the run
+ * red. Locally, against a site seeded by hand, the same spec skips with the reason.
+ *
+ * @returns {boolean} True in strict mode.
+ */
+function strictFixtures() {
+    return process.env.SME_STRICT_FIXTURES === '1';
+}
+
+/**
+ * Require a fixture: fail in strict mode, skip with the reason otherwise.
+ *
+ * Call it inside a test or a beforeEach hook.
+ *
+ * @param {Object} test The Playwright test object.
+ * @param {*} present Truthy when the fixture is there.
+ * @param {string} what What is missing, for the message.
+ * @returns {void}
+ */
+function requireFixture(test, present, what) {
+    if (present) {
+        return;
+    }
+    if (strictFixtures()) {
+        throw new Error(`Required fixture missing: ${what}. The seed promises it for this run, `
+            + 'so the test fails instead of skipping.');
+    }
+    test.skip(true, `fixture missing: ${what}`);
+}
+
+/**
+ * Skip a test for a reason that is legitimate on some sites, also in strict mode.
+ *
+ * The annotation is what run-summary.js accepts as an intended skip; every other skip, and every
+ * fixme, fails the summary gate in strict mode. A run that has to prove what such a test checks -
+ * the Moodle 5.3 row of the Playwright workflow for the dark colour mode - sets
+ * SME_NO_OPTIONAL_SKIPS=1, and the skip becomes a failure.
+ *
+ * @param {Object} test The Playwright test object.
+ * @param {boolean} condition Skip when true.
+ * @param {string} reason Why skipping is legitimate here.
+ * @returns {void}
+ */
+function optionalSkip(test, condition, reason) {
+    if (!condition) {
+        return;
+    }
+    if (process.env.SME_NO_OPTIONAL_SKIPS === '1') {
+        throw new Error(`This run has to execute the test, but it would skip: ${reason}.`);
+    }
+    test.info().annotations.push({type: 'optional-skip', description: reason});
+    test.skip(true, reason);
+}
+
+module.exports = {
+    env, fillStable, loginAs, open, openPage, closePage, closeLeftovers,
+    strictFixtures, requireFixture, optionalSkip,
+};

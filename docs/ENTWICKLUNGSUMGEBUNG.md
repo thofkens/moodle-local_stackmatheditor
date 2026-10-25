@@ -78,7 +78,7 @@ git clone --branch master https://github.com/maths/moodle-qtype_stack.git \
     question/type/stack
 
 # Optional: für Tests im adaptiven Kontext (page type mod-adaptivequiz-view).
-# git clone https://github.com/<org>/moodle-mod_adaptivequiz.git mod/adaptivequiz
+# git clone https://github.com/vtos/moodle-mod_adaptivequiz.git mod/adaptivequiz
 
 git clone --branch development https://github.com/ralferlebach/moodle-local_stackmatheditor.git \
     local/stackmatheditor

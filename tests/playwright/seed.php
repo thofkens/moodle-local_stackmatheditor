@@ -91,7 +91,8 @@ function local_stackmatheditor_seed_import(string $file, stdClass $category, std
     file_put_contents($tmp, $xml);
     $format = new qformat_xml();
     $format->setCategory($category);
-    $format->setContexts([context_course::instance($course->id)]);
+    // The context of the category: the course on Moodle 4.5, the question bank module on 5.0+.
+    $format->setContexts([context::instance_by_id($category->contextid)]);
     $format->setCourse($course);
     $format->setFilename($tmp);
     $format->setMatchgrades('nearest');
@@ -107,6 +108,32 @@ function local_stackmatheditor_seed_import(string $file, stdClass $category, std
         throw new moodle_exception('STACK marked the imported question from ' . $file . ' as broken.');
     }
     return $questionid;
+}
+
+/**
+ * Seed a quiz that only one spec needs, without letting it break the others.
+ *
+ * @param testing_data_generator $gen Data generator.
+ * @param stdClass $course Course.
+ * @param stdClass $category Question category.
+ * @param string $name Quiz name.
+ * @param array $fixtures Question fixtures.
+ * @return int Course module id, or 0 when the quiz could not be built.
+ */
+function local_stackmatheditor_seed_optional_quiz(
+    testing_data_generator $gen,
+    stdClass $course,
+    stdClass $category,
+    string $name,
+    array $fixtures
+): int {
+    try {
+        return local_stackmatheditor_seed_quiz($gen, $course, $category, $name, $fixtures);
+    } catch (Throwable $e) {
+        fwrite(STDERR, "WARNING: could not seed '{$name}' from " . implode(', ', $fixtures)
+            . ': ' . $e->getMessage() . "\n");
+        return 0;
+    }
 }
 
 /**
@@ -153,7 +180,15 @@ if (!$course) {
     $course = $gen->create_course(['shortname' => 'SMETEST', 'fullname' => 'STACK MathQuill Editor tests']);
 }
 $context = context_course::instance($course->id);
-$category = question_make_default_categories([$context]);
+$bankhelper = '\\core_question\\local\\bank\\question_bank_helper';
+if (method_exists($bankhelper, 'get_default_open_instance_system_type')) {
+    // Moodle 5.0+: there are no course-level question banks any more; questions live in a
+    // question bank module of the course. question_make_default_categories() no longer works.
+    $bank = $bankhelper::get_default_open_instance_system_type($course, true);
+    $category = question_get_default_category(context_module::instance($bank->id)->id, true);
+} else {
+    $category = question_make_default_categories([$context]);
+}
 
 $users = ['sme_teacher' => 'editingteacher'];
 for ($i = 1; $i <= $students; $i++) {
@@ -181,6 +216,30 @@ $loadcm = local_stackmatheditor_seed_quiz(
     $category,
     'SME Load Quiz',
     array_merge(array_fill(0, 8, 'stack_algebraic.xml'), array_fill(0, 2, 'stack_textarea.xml'))
+);
+
+// The question the bidirectional sync was reported with (#77): four algebraic inputs bound to
+// four JSXGraph sliders. Its own quiz, because a slider question is slow to instantiate and the
+// other suites have no use for it.
+// The quizzes below serve one spec each. If one of them cannot be built - a fixture STACK will not
+// import, say - that spec has nothing to test, but every other workflow still needs its site:
+// the failure is reported on stderr, the id becomes 0, and the spec skips with a reason.
+$jsxgraphcm = local_stackmatheditor_seed_optional_quiz(
+    $gen,
+    $course,
+    $category,
+    'SME JSXGraph Quiz',
+    ['stack_jsxgraph.xml']
+);
+
+// A units input (#77, item 18) next to an algebraic one, so a test can compare the two on one
+// page. Its own quiz: the load quiz has a fixed shape the performance suite depends on.
+$unitscm = local_stackmatheditor_seed_optional_quiz(
+    $gen,
+    $course,
+    $category,
+    'SME Units Quiz',
+    ['stack_units.xml', 'stack_algebraic.xml']
 );
 
 // Warm STACK's CAS result cache: instantiate every question once now. Otherwise the first
@@ -221,6 +280,42 @@ $qbeids = $DB->get_fieldset_sql(
     ['quizid' => get_coursemodule_from_id('quiz', $settingscm, 0, false, MUST_EXIST)->instance]
 );
 
+// A right-to-left language for rtl.spec.js: a minimal pack of only its langconfig.php, which is
+// what makes Moodle render a page right to left (dir="rtl", the flipped theme CSS). Every string
+// falls back to English. Created only where no real Hebrew pack is installed.
+$rtlpack = $CFG->dataroot . '/lang/he';
+if (!is_dir($CFG->dirroot . '/lang/he') && !is_file($rtlpack . '/langconfig.php')) {
+    make_writable_directory($rtlpack);
+    file_put_contents($rtlpack . '/langconfig.php', implode("\n", [
+        '<?php',
+        '$string[\'thisdirection\'] = \'rtl\';',
+        '$string[\'thislanguage\'] = \'Hebrew (SME RTL test)\';',
+        '$string[\'thislanguageint\'] = \'Hebrew\';',
+        '$string[\'parentlanguage\'] = \'\';',
+        '',
+    ]));
+    get_string_manager()->reset_caches();
+}
+
+// Moodle 5.3+ (theme_boost colour modes): offer the modes, so the dark mode smoke test can switch
+// to dark as a user would (#93). The site default stays light; nothing else changes.
+if (class_exists('\\theme_boost\\colour_mode')) {
+    set_config('enablecolourmodes', 1, 'theme_boost');
+}
+
+// Option --all-groups switches every toolbar group on site-wide. A fresh site offers the default
+// selection only, and a run that has to hear the matrix chooser (NVDA, #69) needs it on the page.
+if (in_array('--all-groups', $argv ?? [], true)) {
+    set_config(
+        'default_groups',
+        implode(',', array_keys(\local_stackmatheditor\definitions::get_element_groups())),
+        'local_stackmatheditor'
+    );
+    // The NVDA run also has to hear the student switch; it is on by default, this makes the
+    // promise explicit instead of depending on the default (#89).
+    set_config('allowstudenttoggle', 1, 'local_stackmatheditor');
+}
+
 // Option --reset removes every quiz- and question-level configuration of the settings quiz, so each
 // browser test starts from the admin settings alone.
 if (in_array('--reset', $argv ?? [], true)) {
@@ -236,6 +331,8 @@ $exports = [
     'SME_COURSE_ID' => $course->id,
     'SME_SETTINGS_CMID' => $settingscm,
     'SME_LOAD_CMID' => $loadcm,
+    'SME_JSXGRAPH_CMID' => $jsxgraphcm,
+    'SME_UNITS_CMID' => $unitscm,
     'SME_USER_PASS' => $password,
     'SME_STUDENTS' => $students,
 ];

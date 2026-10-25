@@ -31,8 +31,19 @@ define([
     'local_stackmatheditor/operator_map',
     'local_stackmatheditor/stack_bridge',
     'local_stackmatheditor/local_validation',
-    'local_stackmatheditor/a11y'
-], function($, tex2max, max2tex, toolbar, OperatorMap, Bridge, LocalValidation, A11y) {
+    'local_stackmatheditor/a11y',
+    'local_stackmatheditor/editor_toggle'
+], function(
+    $,
+    tex2max,
+    max2tex,
+    toolbar,
+    OperatorMap,
+    Bridge,
+    LocalValidation,
+    A11y,
+    Toggle
+) {
     'use strict';
 
     var TYPES = ['equiv', 'textarea'];
@@ -50,6 +61,9 @@ define([
 
     /**
      * Inject runtime styles for the textarea-based MathQuill editor.
+     *
+     * Colours as in styles.css: Bootstrap 5 variables (Moodle 5.x, dark colour mode) with the
+     * Moodle 4.5 values as fallback.
      */
     function ensureStyles() {
         if (document.getElementById('sme-ta-styles')) {
@@ -63,9 +77,9 @@ define([
             '  margin: 4px 0;',
             '}',
             '.sme-equiv-rows {',
-            '  border: 1px solid #ced4da;',
+            '  border: 1px solid var(--bs-gray-500, #ced4da);',
             '  border-radius: 0 0 4px 4px;',
-            '  background: #fff;',
+            '  background: var(--bs-body-bg, #fff);',
             '  padding: 3px;',
             '  max-height: 500px;',
             '  overflow-y: auto;',
@@ -74,27 +88,27 @@ define([
             '  display: flex;',
             '  align-items: stretch;',
             '  padding: 2px 4px;',
-            '  border-bottom: 1px solid #f0f0f0;',
+            '  border-bottom: 1px solid var(--bs-border-color-translucent, #f0f0f0);',
             '}',
             '.sme-equiv-row:last-child {',
             '  border-bottom: none;',
             '}',
             '.sme-equiv-row-active {',
-            '  background-color: #e8f0fe;',
+            '  background-color: var(--bs-tertiary-bg, #e8f0fe);',
             '  border-radius: 3px;',
             '}',
             '.sme-equiv-row:hover {',
-            '  background-color: #f5f5f5;',
+            '  background-color: var(--bs-secondary-bg, #f5f5f5);',
             '}',
             '.sme-equiv-row-active:hover {',
-            '  background-color: #e8f0fe;',
+            '  background-color: var(--bs-tertiary-bg, #e8f0fe);',
             '}',
             '.sme-equiv-num {',
             '  width: 28px;',
             '  min-width: 28px;',
             '  text-align: right;',
             '  padding-right: 8px;',
-            '  color: #999;',
+            '  color: var(--bs-secondary-color, #999);',
             '  font-size: 0.82em;',
             '  user-select: none;',
             '  flex-shrink: 0;',
@@ -132,20 +146,20 @@ define([
             '  display: block;',
             '  width: 12px;',
             '  flex: 0 0 8px;',
-            '  border-left: 2px solid #444;',
+            '  border-left: 2px solid var(--bs-body-color, #444);',
             '}',
             '.sme-equiv-system-brace::before {',
-            '  border-top: 2px solid #444;',
+            '  border-top: 2px solid var(--bs-body-color, #444);',
             '  border-top-left-radius: 10px;',
             '}',
             '.sme-equiv-system-brace > span {',
             '  display: block;',
             '  flex: 1 1 auto;',
             '  width: 12px;',
-            '  border-left: 2px solid #444;',
+            '  border-left: 2px solid var(--bs-body-color, #444);',
             '}',
             '.sme-equiv-system-brace::after {',
-            '  border-bottom: 2px solid #444;',
+            '  border-bottom: 2px solid var(--bs-body-color, #444);',
             '  border-bottom-left-radius: 10px;',
             '}',
             '.sme-equiv-step-lines {',
@@ -160,7 +174,7 @@ define([
             '  align-items: center;',
             '  gap: 4px;',
             '  padding: 1px 0;',
-            '  border-bottom: 1px solid #f0f0f0;',
+            '  border-bottom: 1px solid var(--bs-border-color-translucent, #f0f0f0);',
             '}',
             '.sme-equiv-line:last-child {',
             '  border-bottom: none;',
@@ -173,7 +187,7 @@ define([
             '.sme-equiv-subdel {',
             '  flex: 0 0 auto;',
             '  min-width: 2rem;',
-            '  color: #666;',
+            '  color: var(--bs-secondary-color, #666);',
             '  text-decoration: none;',
             '  opacity: 0;',
             '  transition: opacity 0.12s;',
@@ -186,7 +200,7 @@ define([
             '.sme-equiv-subdel:hover,',
             '.sme-equiv-subdel:focus {',
             '  opacity: 1;',
-            '  color: #111;',
+            '  color: var(--bs-emphasis-color, #111);',
             '}',
             '.sme-equiv-step-controls {',
             '  flex: 0 0 auto;',
@@ -198,7 +212,7 @@ define([
             '}',
             '.sme-equiv-subadd:hover,',
             '.sme-equiv-subadd:focus {',
-            '  color: #111;',
+            '  color: var(--bs-emphasis-color, #111);',
             '}',
             '.sme-equiv-del {',
             '  flex: 0 0 auto;',
@@ -383,7 +397,7 @@ define([
      */
     function parseInitialSteps(value, inputType) {
         // Leading/trailing blank lines are dropped (STACK trims the value as well); inner empty
-        // lines are real lines of the answer and are kept (#41).
+        // lines are real lines of the answer and are kept.
         var raw = (value || '').trim();
         var lines;
         if (!raw) {
@@ -427,7 +441,7 @@ define([
      *
      * @param {string} latex LaTeX input.
      * @param {Object} convOpts Converter options.
-     * @param {string[]} [problems] Collects codes of incomplete structures (#44).
+     * @param {string[]} [problems] Collects codes of incomplete structures.
      * @returns {string} Converted Maxima expression (empty for an incomplete structure).
      */
     function maximaFromLatex(latex, convOpts, problems) {
@@ -506,13 +520,32 @@ define([
         this.build();
 
         // Check / Submit always send the visible state, even while a debounced sync is still
-        // pending (#48); a stale "invalid" result from STACK is re-checked once.
+        // pending; a stale "invalid" result from STACK is re-checked once.
         var self = this;
         Bridge.register(function() {
             self.syncNow({silent: true});
         });
         Bridge.guardStaleValidation($ta[0]);
     }
+
+    /**
+     * The chooser limit for this editor's slot.
+     *
+     * Same rule as for single-line inputs: the slot map answers per question, the site value
+     * only where the map says nothing.
+     *
+     * @returns {number} Largest structure the choosers may offer here.
+     */
+    EquivEditor.prototype.maxDimension = function() {
+        var perslot = this.ctx.slotMaxDimension || {};
+        var slot = String(this.slot || '');
+
+        if (slot && Object.prototype.hasOwnProperty.call(perslot, slot)) {
+            return perslot[slot];
+        }
+
+        return this.ctx.maxDimension || 0;
+    };
 
     /**
      * Build the editor DOM and initialise all rows.
@@ -526,7 +559,7 @@ define([
         this.$wrap = $('<div>').addClass('sme-equiv-wrap');
         this.$tb = toolbar.build(function() {
             return self.activeField();
-        }, this.config, this.ctx.defs);
+        }, this.config, this.ctx.defs, this.maxDimension());
         this.$wrap.append(this.$tb);
 
         this.$rows = $('<div>').addClass('sme-equiv-rows');
@@ -546,7 +579,7 @@ define([
                 }
                 self.addStep(template);
                 self.focusStep(self.rows.length - 1, 0);
-                // The "+" (Add line) button adds a line like Enter does, and says so (#43).
+                // The "+" (Add line) button adds a line like Enter does, and says so.
                 Bridge.signalEnter(self.$ta[0], {trigger: 'button', inputType: self.inputType, slot: self.slot});
             });
         A11y.label(this.$addBtn[0], 'aria_add_line', true);
@@ -559,14 +592,11 @@ define([
         }
 
         this.$ta.before(this.$wrap);
-        this.$ta.css({
-            'position': 'absolute',
-            'left': '-9999px',
-            'width': '1px',
-            'height': '1px',
-            'overflow': 'hidden'
-        });
+        Toggle.hideOriginal(this.$ta[0]);
         this.$ta.attr('data-sme-init', '1');
+
+        this.buildToggle();
+        this.watchExternalChanges();
 
         toolbar.typeset(this.$tb);
         if (this.rows.length > 0) {
@@ -575,6 +605,116 @@ define([
 
         dbg('created: ' + this.rows.length + ' steps, id=' + this.$ta.attr('id'));
         this.syncNow();
+    };
+
+    /**
+     * Take a value somebody else wrote into the textarea back into the editor.
+     *
+     * The same contract as for a single-line input: the original field is the integration point
+     * in both directions, and an external script may write into it and dispatch an event that
+     * does not bubble.
+     *
+     * @returns {void}
+     */
+    EquivEditor.prototype.watchExternalChanges = function() {
+        var self = this;
+
+        this.lastwritten = this.$ta.val();
+
+        var adopt = function(e) {
+            var current = self.$ta.val();
+
+            if (current === self.lastwritten) {
+                return;
+            }
+            if (self.$rows && self.$rows.hasClass('sme-hidden')) {
+                // The editor is switched off; the textarea is what the student sees.
+                self.lastwritten = current;
+                return;
+            }
+
+            self.ctx.dbg('External change on the textarea (' + (e && e.type) + ')');
+            self.rebuildFrom(current);
+            self.$ta.val(current);
+            self.lastwritten = current;
+        };
+
+        this.$ta[0].addEventListener('input', adopt);
+        this.$ta[0].addEventListener('change', adopt);
+    };
+
+    /**
+     * Put the on/off switch above the editor.
+     *
+     * The way back is simpler here than in the system editor: the lines of a textarea answer are
+     * separated by newlines, so reading them back is splitting a string, not parsing one.
+     *
+     * @returns {void}
+     */
+    EquivEditor.prototype.buildToggle = function() {
+        var self = this;
+        var handedover = null;
+        var slot = String(this.ctx.extractSlot(this.$ta.attr('name') || '') || '');
+        var maytoggle = true;
+        var perslot = this.ctx.slotStudentToggle || {};
+
+        if (this.ctx.allowStudentToggle === false) {
+            maytoggle = false;
+        } else if (Object.prototype.hasOwnProperty.call(perslot, slot)) {
+            maytoggle = !!perslot[slot];
+        }
+
+        this.toggle = Toggle.create({
+            input: this.$ta[0],
+            editor: [this.$tb[0], this.$rows[0], this.$addBtn ? this.$addBtn[0] : null],
+            strings: (this.ctx.defs && this.ctx.defs.strings) || {},
+            toInput: function() {
+                self.syncNow({silent: true});
+                handedover = self.$ta.val();
+            },
+            toEditor: function() {
+                var current = self.$ta.val();
+                if (current !== handedover) {
+                    self.rebuildFrom(current);
+                }
+                self.$ta.val(current);
+            }
+        });
+
+        if (maytoggle) {
+            this.$wrap.prepend(this.toggle.element);
+        }
+
+        setTimeout(function() {
+            self.toggle.apply(maytoggle ? !Toggle.startsOff() : true, true);
+        }, 0);
+    };
+
+    /**
+     * Rebuild the steps from the plain text of the textarea.
+     *
+     * Used when the editor comes back after the student has typed into the textarea: the rows on
+     * screen are stale then, and what counts is what the textarea holds.
+     *
+     * @param {string} value Current textarea value.
+     * @returns {void}
+     */
+    EquivEditor.prototype.rebuildFrom = function(value) {
+        var steps = parseInitialSteps(value, this.inputType);
+        var i;
+
+        this.rows = [];
+        this.$rows.empty();
+        this.activeStepIdx = 0;
+        this.activeFieldIdx = 0;
+
+        for (i = 0; i < steps.length; i++) {
+            this.addStep(steps[i]);
+        }
+
+        if (this.rows.length) {
+            this.focusStep(0, 0);
+        }
     };
 
     /**
@@ -703,10 +843,16 @@ define([
         }
 
         mq = self.ctx.MQ.MathField($mqSpan[0], {
-            spaceBehavesLikeTab: true,
+            // Space inserts a space, it does not navigate. STACK's space-sensitive
+            // "insert stars" variants read "a b" differently from "ab", so the editor has to be
+            // able to produce that boundary at all. Tab and Shift-Tab still leave the block.
+            spaceBehavesLikeTab: false,
             // Typing "U_max" would otherwise give U_{\max}: a subscript is a label, not a
-            // function call (#61). Ignored by MathQuill 0.10.1, which lacks the option.
+            // function call. Ignored by MathQuill 0.10.1, which lacks the option.
             disableAutoSubstitutionInSubscripts: true,
+            // "Umax" is one variable, not U times max: an operator name counts only
+            // when it is the whole word. Needs the fork build; MathQuill 0.10.1 ignores it.
+            autoOperatorNamesOnlyWholeWord: true,
             handlers: {
                 edit: function() {
                     fieldData.maxima = maximaFromLatex(mq.latex(), self.convOpts);
@@ -725,7 +871,7 @@ define([
                     }
                     self.addStep(template, pos.stepIdx + 1);
                     self.focusStep(pos.stepIdx + 1, pos.fieldIdx < template.length ? pos.fieldIdx : 0);
-                    // Enter stays observable for external scripts (#43).
+                    // Enter stays observable for external scripts.
                     Bridge.signalEnter(self.$ta[0], {trigger: 'key', inputType: self.inputType, slot: self.slot});
                 }
             }
@@ -750,7 +896,7 @@ define([
             mq.focus();
         });
         // MathQuill does not raise "edit" for every structural change. A key release, paste or
-        // cut always schedules a sync, so no intermediate state can outlive the final one (#48).
+        // cut always schedules a sync, so no intermediate state can outlive the final one.
         $mqWrap.on('keyup paste cut', function() {
             self.debouncedSync();
         });
@@ -760,7 +906,7 @@ define([
                 self.setActive(pos.stepIdx, pos.fieldIdx);
             }
         });
-        // Normal lines (#41): two-stage deletion. MathQuill deletes the content down to an
+        // Normal lines: two-stage deletion. MathQuill deletes the content down to an
         // empty line, which then stays as a real empty line; only Backspace or Delete in a line
         // that was ALREADY empty removes it. The capture phase runs before MathQuill's own key
         // handler, so it sees the line as it was before this key. At least one line remains.
@@ -918,7 +1064,7 @@ define([
             }
             self.addField(self.rows.indexOf(stepData), templateValue, focusField + 1);
             self.focusStep(self.rows.indexOf(stepData), focusField + 1);
-            // The "+" button adds a row like Enter does, and says so (#43).
+            // The "+" button adds a row like Enter does, and says so.
             Bridge.signalEnter(self.$ta[0], {trigger: 'button', inputType: self.inputType, slot: self.slot});
         });
 
@@ -1017,6 +1163,7 @@ define([
         var oldVal = this.$ta.val();
         LocalValidation.show(this.$rows[0], problems);
         this.$ta.val(value);
+        this.lastwritten = value;
         if (value !== oldVal && !silent) {
             Bridge.triggerValidation(this.$ta[0]);
             dbg('sync: ' + lines.length + ' steps');
@@ -1039,8 +1186,12 @@ define([
                 }
                 var aname = $(this).attr('name') || '';
                 var aslot = ctx.extractSlot(aname);
-                if (ctx.slotEnabled && ctx.slotEnabled.hasOwnProperty(aslot) && !ctx.slotEnabled[aslot]) {
-                    ctx.dbg('Textarea ' + aname + ' -> slot ' + aslot + ' disabled, skipping');
+                // Same rule as for single-line inputs: the slot map answers per question,
+                // and where it says nothing the page default decides.
+                var aknown = ctx.slotEnabled
+                    && Object.prototype.hasOwnProperty.call(ctx.slotEnabled, aslot);
+                if (aknown ? !ctx.slotEnabled[aslot] : ctx.defaultEnabled === false) {
+                    ctx.dbg('Textarea ' + aname + ' -> slot ' + aslot + ' not enabled, skipping');
                     return;
                 }
                 new EquivEditor(this, ctx);

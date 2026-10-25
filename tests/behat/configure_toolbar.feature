@@ -8,12 +8,14 @@ Feature: MathQuill toolbar configuration
     Given the following "users" exist:
       | username | firstname | lastname | email                |
       | teacher1 | Teacher   | One      | teacher@example.com  |
+      | student1 | Student   | One      | student1@example.com |
     And the following "courses" exist:
       | fullname | shortname |
       | Course 1 | C1        |
     And the following "course enrolments" exist:
       | user     | course | role           |
       | teacher1 | C1     | editingteacher |
+      | student1 | C1     | student        |
     And the following "activities" exist:
       | activity | course | name      | idnumber |
       | quiz     | C1     | Test Quiz | quiz1    |
@@ -104,3 +106,23 @@ Feature: MathQuill toolbar configuration
     And I am on the STACK MathQuill quiz configuration page for "Test Quiz" with return URL "https://example.org/"
     When I press "Back"
     Then I should be on the quiz view page of "Test Quiz"
+
+  # ── Authorisation before question resolution (#54) ───────────────────────────
+
+  Scenario Outline: A guest sees the login page, never a question-specific error
+    Given a STACK question exists in quiz "Test Quiz"
+    And I log out
+    When I am on the STACK MathQuill quiz configuration page for "Test Quiz" with question "<question>"
+    Then I should see "Log in"
+    And I should not see "not a STACK question"
+    And I should not see "Cannot resolve the question"
+
+    Examples:
+      | question    |
+      | nonexistent |
+      | stack       |
+
+  Scenario: A logged-in user without the manage capability is stopped before the question is resolved
+    Given a STACK question exists in quiz "Test Quiz"
+    And I log in as "student1"
+    Then the STACK MathQuill quiz configuration page for "Test Quiz" with question "nonexistent" is denied to me

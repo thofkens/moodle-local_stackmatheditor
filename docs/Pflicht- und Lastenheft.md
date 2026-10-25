@@ -180,7 +180,7 @@ local/stackmatheditor/
 | Capability | Verwendung |
 |------------|------------|
 | `mod/quiz:manage` | Zugriff auf Konfigurationsseite für mod_quiz |
-| `mod/adaptivequiz:viewreport` | Äquivalent für mod_adaptivequiz (kein `:manage`) |
+| `moodle/course:manageactivities` | Zugriff auf Konfigurationsseite für mod_adaptivequiz (Schreibrecht; das Modul hat kein `:manage`, `:viewreport` ist nur ein Leserecht) |
 
 ### 3.5 Bekannte technische Einschränkungen
 

@@ -203,3 +203,86 @@ Feature: tex2max converts LaTeX to Maxima notation correctly
       | U_{m}ax   | explicit_single | U_m*a*x  |
       | U_{m}ax   | explicit_multi  | U_m*ax   |
       | U_{e}ff   | stack           | U_e ff   |
+
+  # ── Typed on the keyboard, not written through the API (#58) ─────────────────
+  # The other scenarios drive MathQuill's write() API. These go through the typing
+  # path, which is where an operator name inside a word was pulled out of it.
+
+  @javascript
+  Scenario Outline: An identifier typed on the keyboard stays one identifier
+    When I press the keys "<typed>" into the MathQuill field for "ans1"
+    Then the underlying STACK input for "ans1" should be "<expected>"
+    And the MathQuill field for "ans1" should contain LaTeX containing "<latex>"
+
+    Examples:
+      | typed    | expected | latex    |
+      | Umax     | Umax     | Umax     |
+      | Umin     | Umin     | Umin     |
+      | argmax   | argmax   | argmax   |
+      | maximum  | maximum  | maximum  |
+      | sinvalue | sinvalue | sinvalue |
+
+  @javascript
+  Scenario: A function typed on the keyboard is still a function
+    When I press the keys "max(x,y)" into the MathQuill field for "ans1"
+    Then the underlying STACK input for "ans1" should be "max(x,y)"
+
+  @javascript
+  Scenario: A multi-character subscript typed on the keyboard stays one identifier
+    When I press the keys "U_max" into the MathQuill field for "ans1"
+    Then the underlying STACK input for "ans1" should be "U_max"
+    And the MathQuill field for "ans1" should contain LaTeX containing "U_{max}"
+
+  @javascript
+  Scenario: The subscript survives being written back into the editor
+    When I enter latex "U_{max}" into the MathQuill field for "ans1"
+    Then the underlying STACK input for "ans1" should be "U_max"
+
+  # ── An external script writes into the STACK input (#77) ─────────────────────
+  # STACK's JSXGraph bindings do exactly this: they set the value and dispatch a
+  # change event that does not bubble. The editor has to show the new value.
+
+  @javascript
+  Scenario: A value written from outside appears in the editor
+    When the STACK input for "ans1" is set to "2" by an external script
+    Then the MathQuill field for "ans1" should contain LaTeX containing "2"
+    And the underlying STACK input for "ans1" should be "2"
+
+  @javascript
+  Scenario: The editor still writes back after an external change
+    When the STACK input for "ans1" is set to "2" by an external script
+    And I enter latex "3" into the MathQuill field for "ans1"
+    Then the underlying STACK input for "ans1" should be "3"
+
+  @javascript
+  Scenario: Alternating changes do not drift
+    When the STACK input for "ans1" is set to "2" by an external script
+    And I enter latex "3" into the MathQuill field for "ans1"
+    And the STACK input for "ans1" is set to "4" by an external script
+    Then the MathQuill field for "ans1" should contain LaTeX containing "4"
+    And the underlying STACK input for "ans1" should be "4"
+
+  # ── Nesting through the toolbar (#78, #79) ───────────────────────────────────
+  # The button path, not the API: a root inside a root has to survive the way a
+  # student builds it, and come back the same way after a reload.
+
+  @javascript
+  Scenario: A root inside a root, built with the toolbar
+    When I enter latex "\sqrt{\sqrt{x}}" into the MathQuill field for "ans1"
+    Then the underlying STACK input for "ans1" should be "sqrt(sqrt(x))"
+
+  @javascript
+  Scenario: Three roots deep
+    When I enter latex "\sqrt{\sqrt{\sqrt{x}}}" into the MathQuill field for "ans1"
+    Then the underlying STACK input for "ans1" should be "sqrt(sqrt(sqrt(x)))"
+
+  @javascript
+  Scenario: A nested root comes back into the editor unchanged
+    When the STACK input for "ans1" is set to "sqrt(sqrt(x))" by an external script
+    Then the MathQuill field for "ans1" should contain LaTeX containing "\sqrt{\sqrt{x}}"
+    And the underlying STACK input for "ans1" should be "sqrt(sqrt(x))"
+
+  @javascript
+  Scenario: A nested absolute value keeps both bars
+    When I enter latex "\left|1+\left|x\right|\right|" into the MathQuill field for "ans1"
+    Then the underlying STACK input for "ans1" should be "abs(1+abs(x))"

@@ -1,0 +1,77 @@
+# Release guard - local_stackmatheditor
+#
+# #69: "the gate cannot be bypassed by publishing a stable release directly". A GitHub release
+# of this plugin is made by release-artefact.yml and nothing else: that workflow publishes only a
+# tag whose commit has green checks, a green main CI and green release evidence, and only after
+# the ZIP itself has been installed, upgraded, smoked and tested.
+#
+# A release published by hand - in the web interface, with the gh CLI or with a personal token -
+# has passed none of that. This workflow turns it back into a draft and fails, so the attempt is
+# visible in the Actions list and no one downloads an unchecked archive in the meantime.
+#
+# Releases made by release-artefact.yml do not even start this workflow: GitHub does not trigger
+# workflows for events caused by the job token. The checks below are there so that the guard
+# stays correct should that ever change: a release counts as made by the gate when its author is
+# the Actions bot and it carries the plugin ZIP together with its SHA-256 file.
+#
+# What this cannot cover: an upload to the Moodle plugins directory by hand. That path is
+# described in docs/RELEASE-CHECKLIST.md, section 3, and accepted as a residual risk in
+# docs/RESIDUAL-RISKS.md.
+
+name: Release guard
+
+on:
+  release:
+    types: [published, edited]
+
+permissions:
+  contents: write
+
+jobs:
+  guard:
+    name: Only the release workflow publishes
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check who made the release and what it carries
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ID: ${{ github.event.release.id }}
+          TAG: ${{ github.event.release.tag_name }}
+          AUTHOR: ${{ github.event.release.author.login }}
+          DRAFT: ${{ github.event.release.draft }}
+        run: |
+          set -euo pipefail
+          if [ "$DRAFT" = "true" ]; then
+            echo "Release $TAG ist ein Entwurf - nichts zu pruefen."
+            exit 0
+          fi
+
+          assets="$(gh api "repos/$REPO/releases/$ID/assets" --jq '.[].name')"
+          zip="$(printf '%s\n' "$assets" | grep -E '^moodle-local_stackmatheditor-.*\.zip$' || true)"
+          sum="$(printf '%s\n' "$assets" | grep -E '^moodle-local_stackmatheditor-.*\.zip\.sha256$' || true)"
+
+          problems=()
+          [ "$AUTHOR" = "github-actions[bot]" ] || problems+=("veroeffentlicht von '$AUTHOR', nicht vom Release-Workflow")
+          [ -n "$zip" ] || problems+=("kein Plugin-ZIP angehaengt")
+          [ -n "$sum" ] || problems+=("keine SHA-256-Datei angehaengt")
+          if [ -n "$zip" ] && [ -n "$sum" ] && [ "${sum%.sha256}" != "$zip" ]; then
+            problems+=("Pruefsumme '$sum' gehoert nicht zu '$zip'")
+          fi
+
+          if [ "${#problems[@]}" -eq 0 ]; then
+            echo "Release $TAG stammt aus release-artefact.yml (ZIP $zip mit Pruefsumme)."
+            exit 0
+          fi
+
+          gh api --method PATCH "repos/$REPO/releases/$ID" -F draft=true > /dev/null
+          {
+            echo "## Release $TAG zurueck auf Entwurf gesetzt"
+            echo
+            for p in "${problems[@]}"; do echo "- $p"; done
+            echo
+            echo "Releases entstehen nur ueber release-artefact.yml: Tag \`v<release>\` pushen,"
+            echo "der Workflow prueft und testet das ZIP und veroeffentlicht es dann selbst."
+            echo "Den Entwurf loeschen, bevor der Tag erneut gepusht wird."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          exit 1

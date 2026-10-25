@@ -32,6 +32,10 @@ class page_helper {
      * element rather than passing data as js_call_amd() arguments avoids the
      * 1 024-character limit imposed by that API.
      *
+     * This is the plugin's only inline script, and it carries data, no logic: the payload is
+     * JSON-encoded twice (JSON_HEX_TAG, then as a string literal), so nothing in it can close the
+     * script or run. Behaviour lives in the AMD modules under amd/src.
+     *
      * The element can be read in JavaScript with:
      *   var data = JSON.parse(document.getElementById(id).textContent);
      *

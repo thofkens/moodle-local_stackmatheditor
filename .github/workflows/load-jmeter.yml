@@ -102,8 +102,7 @@ jobs:
       - name: Install Maxima and gnuplot (STACK CAS)
         if: ${{ env.MODE == 'selfcontained' }}
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq maxima gnuplot-nox
+          bash plugin/.github/install-maxima.sh
       - name: Build and install the test site (Moodle + STACK + plugin)
         if: ${{ env.MODE == 'selfcontained' }}
         run: bash plugin/.github/build-test-site.sh
@@ -112,15 +111,25 @@ jobs:
         if: ${{ env.MODE == 'selfcontained' }}
         run: |
           web=moodle; [ -d moodle/public ] && web=moodle/public
-          php "$web/local/stackmatheditor/tests/playwright/seed.php" > /tmp/sme-seed.env
+          php "$web/local/stackmatheditor/tests/playwright/seed.php" > /tmp/sme-seed.env \
+            || { echo "Seed failed. Its output:"; cat /tmp/sme-seed.env; exit 1; }
           sed -n "s/^export \([A-Z_][A-Z0-9_]*\)='\(.*\)'$/\1=\2/p" /tmp/sme-seed.env >> "$GITHUB_ENV"
           cat /tmp/sme-seed.env
       - name: Set up JMeter
         run: |
           # Supply-chain hardening: verify the download against Apache's published SHA-512.
-          base="https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-${JMETER_VERSION}.tgz"
-          curl -fsSL "$base" -o jmeter.tgz
-          curl -fsSL "${base}.sha512" -o jmeter.tgz.sha512
+          # Two runs in a row ended here after fifteen minutes: the download from
+          # archive.apache.org had stalled, and curl without a time limit waits for ever. The
+          # mirror network comes first now, the archive is the fallback, and neither may take
+          # longer than four minutes. The checksum always comes from apache.org itself.
+          file="jmeter/binaries/apache-jmeter-${JMETER_VERSION}.tgz"
+          fetch () { curl -fsSL --connect-timeout 20 --max-time 240 --retry 2 --retry-delay 5 "$1" -o "$2"; }
+          fetch "https://dlcdn.apache.org/$file" jmeter.tgz \
+            || fetch "https://archive.apache.org/dist/$file" jmeter.tgz \
+            || { echo "::error::JMeter ${JMETER_VERSION} could not be downloaded from Apache."; exit 1; }
+          fetch "https://downloads.apache.org/$file.sha512" jmeter.tgz.sha512 \
+            || fetch "https://archive.apache.org/dist/$file.sha512" jmeter.tgz.sha512 \
+            || { echo "::error::The JMeter checksum could not be downloaded from Apache."; exit 1; }
           # The .sha512 file already carries a filename; take the hash field only.
           echo "$(awk '{print $1}' jmeter.tgz.sha512)  jmeter.tgz" | sha512sum -c -
           tar xzf jmeter.tgz
@@ -136,6 +145,10 @@ jobs:
             # The web server is started inside THIS step (see serve-test-site.sh).
             . plugin/.github/serve-test-site.sh
             base="$MOODLE_WWWROOT"
+            # The first login in the life of this site, alone and before anything is measured
+            # (see warm-up-site.sh). The last seeded student is not part of the load plans.
+            bash plugin/.github/warm-up-site.sh "$base" \
+              "$(printf 'sme_student%02d' "$SME_STUDENTS")" "$SME_USER_PASS" "$SME_LOAD_CMID"
           fi
           echo "Target: $base, threads: $THREADS, ramp-up: ${RAMPUP}s, loops: $LOOPS"
           "apache-jmeter-${JMETER_VERSION}/bin/jmeter" -n \
@@ -172,6 +185,10 @@ jobs:
         run: tail -100 /tmp/moodle-server.log || true
       - name: Upload results and HTML dashboard
         if: ${{ always() }}
+        # A failed artifact upload must not fail a job whose checks passed: the finalize call
+        # has answered 403 on an otherwise green run (2026-09-14). The logs are a convenience,
+        # not a gate.
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: jmeter-results

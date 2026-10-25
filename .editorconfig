@@ -1,0 +1,26 @@
+# Editors that honour this file leave the build artefacts alone (#69 release gate).
+#
+# Grunt writes amd/build/*.min.js.map without a final newline. An editor that adds one on save
+# makes the file differ from a fresh build, and the CI's freshness check then reports it as
+# stale - which is exactly what happened to four maps before the 1.3.0 release.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{yml,yaml,json}]
+indent_size = 2
+
+[amd/build/**]
+insert_final_newline = false
+trim_trailing_whitespace = false
+
+[thirdparty/**]
+insert_final_newline = unset
+trim_trailing_whitespace = unset

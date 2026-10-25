@@ -132,7 +132,11 @@ class configure_injector {
             return [];
         }
 
-        $stackdata = quiz_helper::load_attempt_stack_slots($attemptid);
+        // Links are built for this quiz's configuration page, so the attempt has to be one of its.
+        $stackdata = quiz_helper::load_attempt_stack_slots(
+            $attemptid,
+            quiz_helper::get_quiz_instance_id($cmid)
+        );
         if (empty($stackdata['slotmap'])) {
             return [];
         }

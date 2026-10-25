@@ -104,6 +104,10 @@ jobs:
           cat ci-logs/summary.txt
       - name: Upload error summary (ZIP)
         if: ${{ always() }}
+        # A failed artifact upload must not fail a job whose checks passed: the finalize call
+        # has answered 403 on an otherwise green run (2026-09-14). The logs are a convenience,
+        # not a gate.
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: error-summary-dev-lint-php
@@ -152,6 +156,10 @@ jobs:
           cat ci-logs/summary.txt
       - name: Upload error summary (ZIP)
         if: ${{ always() }}
+        # A failed artifact upload must not fail a job whose checks passed: the finalize call
+        # has answered 403 on an otherwise green run (2026-09-14). The logs are a convenience,
+        # not a gate.
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: error-summary-dev-codeanalysis
@@ -228,6 +236,24 @@ jobs:
       - name: Gherkin lint (Behat features)
         if: ${{ always() }}
         run: moodle-plugin-ci grunt -t gherkinlint 2>&1 | tee ci-logs/gherkinlint.log
+      # The CLI scripts against the clean installation above (#91): exit code 0, and no PHP error
+      # in the output - diagnose_legacy_config.php once stopped at its first line because clilib
+      # was not loaded. repair_config.php runs as a dry run; neither may change anything.
+      - name: CLI scripts on a clean installation
+        if: ${{ always() }}
+        run: |
+          web=moodle; [ -d moodle/public ] && web=moodle/public
+          set -o pipefail
+          for script in diagnose_legacy_config.php repair_config.php; do
+            echo "=== $script"
+            php "$web/local/stackmatheditor/cli/$script" 2>&1 | tee "ci-logs/cli-$script.log"
+            if grep -qiE 'fatal error|undefined function|undefined method|warning:|notice:|exception' \
+                "ci-logs/cli-$script.log"; then
+              echo "::error::$script printed an error"
+              exit 1
+            fi
+          done
+          grep -q 'Dry run - nothing changed' ci-logs/cli-repair_config.php.log
       - name: Collect error summary
         if: ${{ always() }}
         run: |
@@ -235,6 +261,10 @@ jobs:
           cat ci-logs/summary.txt
       - name: Upload error summary (ZIP)
         if: ${{ always() }}
+        # A failed artifact upload must not fail a job whose checks passed: the finalize call
+        # has answered 403 on an otherwise green run (2026-09-14). The logs are a convenience,
+        # not a gate.
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: error-summary-dev-quality
@@ -320,6 +350,10 @@ jobs:
           cat ci-logs/summary.txt
       - name: Upload error summary (ZIP)
         if: ${{ always() }}
+        # A failed artifact upload must not fail a job whose checks passed: the finalize call
+        # has answered 403 on an otherwise green run (2026-09-14). The logs are a convenience,
+        # not a gate.
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: error-summary-dev-javascript
@@ -334,7 +368,7 @@ jobs:
     needs: [lint-php]
     services:
       postgres:
-        image: postgres:16
+        image: postgres:${{ matrix.pg || '16' }}
         env:
           POSTGRES_USER: 'postgres'
           POSTGRES_HOST_AUTH_METHOD: 'trust'
@@ -342,13 +376,13 @@ jobs:
           - 5432:5432
         options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 3
       mariadb:
-        image: mariadb:10.11
+        image: mariadb:${{ matrix.mariadb || '10.11' }}
         env:
           MYSQL_USER: 'root'
           MYSQL_ALLOW_EMPTY_PASSWORD: "true"
         ports:
           - 3306:3306
-        options: --health-cmd="mysqladmin ping" --health-interval 10s --health-timeout 5s --health-retries 3
+        options: --health-cmd="mariadb-admin ping" --health-interval 10s --health-timeout 5s --health-retries 3
     strategy:
       fail-fast: false
       matrix:
@@ -356,6 +390,9 @@ jobs:
           - { moodle: MOODLE_405_STABLE, php: '8.2', database: pgsql }
           - { moodle: MOODLE_500_STABLE, php: '8.3', database: mariadb }
           - { moodle: MOODLE_502_STABLE, php: '8.3', database: pgsql }
+          # Moodle 5.3 needs PHP 8.3, PostgreSQL 17 or MariaDB 11.4.
+          - { moodle: MOODLE_503_STABLE, php: '8.3', database: pgsql, pg: '17' }
+          - { moodle: MOODLE_503_STABLE, php: '8.4', database: mariadb, mariadb: '11.4' }
     steps:
       - uses: actions/checkout@v6
         with:
@@ -375,11 +412,7 @@ jobs:
           restore-keys: composer-${{ runner.os }}-
       - name: Install Maxima and gnuplot (STACK CAS)
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq maxima gnuplot-nox
-          ver=$(maxima --version 2>&1 | grep -oP '\d+\.\d+(\.\d+)?' | head -1)
-          echo "Installed Maxima $ver"
-          dpkg --compare-versions "$ver" ge 5.46 || { echo "Maxima $ver < 5.46 - STACK will reject it."; exit 1; }
+          bash plugin/.github/install-maxima.sh
       - name: Initialise moodle-plugin-ci
         run: |
           composer create-project -n --no-dev --prefer-dist moodlehq/moodle-plugin-ci ci ^4
@@ -408,6 +441,10 @@ jobs:
           cat ci-logs/summary.txt
       - name: Upload error summary (ZIP)
         if: ${{ always() }}
+        # A failed artifact upload must not fail a job whose checks passed: the finalize call
+        # has answered 403 on an otherwise green run (2026-09-14). The logs are a convenience,
+        # not a gate.
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: error-summary-dev-phpunit-${{ matrix.moodle }}-${{ matrix.php }}-${{ matrix.database }}
@@ -418,7 +455,10 @@ jobs:
   behat:
     name: "Behat / MOODLE_405_STABLE / PHP 8.2 / Chrome"
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
+    # 30 was enough for 69 scenarios; the CAS contract from #34 adds sixteen more that each
+    # wait for a real Maxima answer, and the run was being killed mid-suite - which looks
+    # exactly like "Behat never started" in the UI, because a cancelled job shows no result.
     needs: [lint-php, javascript]
     services:
       mariadb:
@@ -448,11 +488,7 @@ jobs:
           restore-keys: composer-${{ runner.os }}-
       - name: Install Maxima and gnuplot (STACK CAS)
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq maxima gnuplot-nox
-          ver=$(maxima --version 2>&1 | grep -oP '\d+\.\d+(\.\d+)?' | head -1)
-          echo "Installed Maxima $ver"
-          dpkg --compare-versions "$ver" ge 5.46 || { echo "Maxima $ver < 5.46 - STACK will reject it."; exit 1; }
+          bash plugin/.github/install-maxima.sh
       - name: Initialise moodle-plugin-ci
         run: |
           composer create-project -n --no-dev --prefer-dist moodlehq/moodle-plugin-ci ci ^4
@@ -487,12 +523,24 @@ jobs:
         id: behat
         run: |
           moodle-plugin-ci behat --profile chrome --auto-rerun 0 \
-            --tags "@local_stackmatheditor&&~@broken&&~@wip&&~@stack_init" --dump 2>&1 | tee ci-logs/behat.log
+            --tags "@local_stackmatheditor&&~@broken&&~@wip&&~@stack_init&&~@local_stackmatheditor_cas" \
+            --dump 2>&1 | tee ci-logs/behat.log
+      # The CAS contract (#34) is its own step: every scenario waits for a real Maxima answer, so
+      # it is the slow part, and a failure there means "the CAS disagrees with a button" rather
+      # than "the editor is broken". Keeping the two apart keeps that distinction readable.
+      - name: Behat - CAS contract (@local_stackmatheditor_cas)
+        id: behat-cas
+        run: |
+          moodle-plugin-ci behat --profile chrome --auto-rerun 0 \
+            --tags "@local_stackmatheditor_cas&&~@broken&&~@wip" --dump 2>&1 \
+            | tee ci-logs/behat-cas.log
+
       - name: Show relevant Behat failures
         if: ${{ failure() }}
         run: |
           grep -h -n -E 'Scenario:|Exception|Error|Failed|Coding error|stack_cas_connection|Fatal error|not found|does not equal' \
-            ci-logs/behat-stack-init.log ci-logs/behat.log 2>/dev/null | head -200 || true
+            ci-logs/behat-stack-init.log ci-logs/behat.log ci-logs/behat-cas.log \
+            2>/dev/null | head -200 || true
       - name: Collect error summary and Behat dumps
         if: ${{ always() }}
         run: |
@@ -506,6 +554,10 @@ jobs:
           cat ci-logs/summary.txt
       - name: Upload error summary (ZIP)
         if: ${{ always() }}
+        # A failed artifact upload must not fail a job whose checks passed: the finalize call
+        # has answered 403 on an otherwise green run (2026-09-14). The logs are a convenience,
+        # not a gate.
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: error-summary-dev-behat

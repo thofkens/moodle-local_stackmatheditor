@@ -12,3 +12,9 @@
 .github/workflows/moodle-ci.yml
 # 2026091000: IDE project files were committed despite .gitignore (git rm -r --cached .idea).
 .idea
+
+# 2026091300: MathQuill upgraded to the fork build, whose font directory is fonts/ (plural).
+# The old directory keeps serving stale font files next to the new ones.
+thirdparty/mathquill/font
+# 2026091300: the vendored library no longer carries a placeholder README.
+thirdparty/mathquill/README.md

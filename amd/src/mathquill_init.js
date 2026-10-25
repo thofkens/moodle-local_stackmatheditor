@@ -194,15 +194,15 @@ define([
 
     /**
      * Initialize MathJax compatibility.
-     * Handles both old (side-effect) and new (init method)
-     * versions of mathjax_compat.
+     * Calls mathjax_compat's init() when it exposes one; a module
+     * that installs itself on import needs no further call.
      */
     function initMjCompat() {
         if (mjCompat && typeof mjCompat.init === 'function') {
             mjCompat.init();
         }
-        // If mjCompat doesn't have init(), it ran as
-        // side-effect on import — nothing else needed.
+        // Without init(), mjCompat has installed itself
+        // on import — nothing else needed.
     }
 
     /**
@@ -270,6 +270,11 @@ define([
             slotConfigs: slotConfigs,
             slotVarModes: slotVarModes,
             slotEnabled: slotEnabled,
+            defaultEnabled: runtime.defaultEnabled !== false,
+            slotStudentToggle: runtime.slotStudentToggle || {},
+            slotMaxDimension: runtime.slotMaxDimension || {},
+            maxDimension: runtime.maxDimension || 0,
+            allowStudentToggle: runtime.allowStudentToggle !== false,
             instanceDefaults: instanceDefaults,
             instanceVarMode: instanceVarMode,
             localeComma: localeComma,

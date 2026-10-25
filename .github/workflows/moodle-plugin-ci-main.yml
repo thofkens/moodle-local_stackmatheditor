@@ -45,10 +45,14 @@ jobs:
   test:
     name: "CI / ${{ matrix.moodle }} / PHP ${{ matrix.php }} / ${{ matrix.database }}"
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    # The whole Behat suite runs in every row, and it has grown with the CAS contract: seven of
+    # eight rows ran into the former 35 minutes without having failed anything.
+    timeout-minutes: 75
     services:
       postgres:
-        image: postgres:16
+        # Moodle 5.3 requires PostgreSQL 17 and MariaDB 11.4; the older branches run on the
+        # versions they have always been tested with.
+        image: postgres:${{ matrix.pg || '16' }}
         env:
           POSTGRES_USER: 'postgres'
           POSTGRES_HOST_AUTH_METHOD: 'trust'
@@ -56,13 +60,14 @@ jobs:
           - 5432:5432
         options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 3
       mariadb:
-        image: mariadb:10.11
+        image: mariadb:${{ matrix.mariadb || '10.11' }}
         env:
           MYSQL_USER: 'root'
           MYSQL_ALLOW_EMPTY_PASSWORD: "true"
         ports:
           - 3306:3306
-        options: --health-cmd="mysqladmin ping" --health-interval 10s --health-timeout 5s --health-retries 3
+        # mariadb-admin, not mysqladmin: the 11.x images dropped the old name, and 10.11 has both.
+        options: --health-cmd="mariadb-admin ping" --health-interval 10s --health-timeout 5s --health-retries 3
     strategy:
       fail-fast: false
       matrix:
@@ -77,6 +82,8 @@ jobs:
           - { moodle: MOODLE_501_STABLE, php: '8.4', database: mariadb, grunt: false }
           - { moodle: MOODLE_502_STABLE, php: '8.3', database: mariadb, grunt: false }
           - { moodle: MOODLE_502_STABLE, php: '8.4', database: pgsql, grunt: false }
+          - { moodle: MOODLE_503_STABLE, php: '8.3', database: pgsql, grunt: false, pg: '17' }
+          - { moodle: MOODLE_503_STABLE, php: '8.4', database: mariadb, grunt: false, mariadb: '11.4' }
     steps:
       - name: Check out repository code
         uses: actions/checkout@v6
@@ -98,11 +105,7 @@ jobs:
           restore-keys: composer-${{ runner.os }}-
       - name: Install Maxima and gnuplot (STACK CAS)
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq maxima gnuplot-nox
-          ver=$(maxima --version 2>&1 | grep -oP '\d+\.\d+(\.\d+)?' | head -1)
-          echo "Installed Maxima $ver"
-          dpkg --compare-versions "$ver" ge 5.46 || { echo "Maxima $ver < 5.46 - STACK will reject it."; exit 1; }
+          bash plugin/.github/install-maxima.sh
       - name: Initialise moodle-plugin-ci
         run: |
           composer create-project -n --no-dev --prefer-dist moodlehq/moodle-plugin-ci ci ^4
@@ -117,10 +120,39 @@ jobs:
           moodle-plugin-ci add-plugin --branch "$DFEXPLICITVAILDATE_BRANCH" maths/moodle-qbehaviour_dfexplicitvaildate
           moodle-plugin-ci add-plugin --branch "$DFCBMEXPLICITVAILDATE_BRANCH" maths/moodle-qbehaviour_dfcbmexplicitvaildate
           moodle-plugin-ci add-plugin --branch "$IMPORTASVERSION_BRANCH" maths/moodle-qbank_importasversion
+          # mod_adaptivequiz on the 4.5 rows: the adaptive quiz navigation test (#86, #90) runs
+          # the real callback against a real instance there and skips where the module is absent.
+          # Its master branch declares Moodle 4.4 as minimum and is not tested beyond 4.5.
+          if [ "$MOODLE_BRANCH" = "MOODLE_405_STABLE" ]; then
+            moodle-plugin-ci add-plugin --branch master vtos/moodle-mod_adaptivequiz
+          fi
           moodle-plugin-ci install --plugin ./plugin --db-host=127.0.0.1
         env:
           DB: ${{ matrix.database }}
           MOODLE_BRANCH: ${{ matrix.moodle }}
+      # A run is only evidence if it says what it ran against (#70). The branch variables
+      # above are moving targets; these are the revisions this run actually used.
+      - name: Record dependency revisions
+        if: ${{ always() }}
+        run: |
+          mkdir -p ci-logs
+          {
+            echo "plugin: ${{ github.sha }}"
+            echo "moodle: ${{ matrix.moodle }}"
+            for dep in moodle/question/type/stack \
+                       moodle/question/behaviour/adaptivemultipart \
+                       moodle/question/behaviour/dfexplicitvaildate \
+                       moodle/question/behaviour/dfcbmexplicitvaildate \
+                       moodle/question/bank/importasversion; do
+              if [ -d "$dep/.git" ]; then
+                echo "$dep: $(git -C "$dep" rev-parse HEAD)"
+              fi
+            done
+            if [ -f plugin/thirdparty/readme_moodle.txt ]; then
+              grep -E 'Fork commit:|Upstream base:|Version:' plugin/thirdparty/readme_moodle.txt \
+                || true
+            fi
+          } | tee ci-logs/dependency-revisions.txt
       # After install: NO <plugin> argument (default from ci/.env = installed copy in the tree).
       - name: PHP Lint
         if: ${{ always() }}
@@ -190,6 +222,10 @@ jobs:
           cat ci-logs/summary.txt
       - name: Upload error summary (ZIP)
         if: ${{ always() }}
+        # A failed artifact upload must not fail a job whose checks passed: the finalize call
+        # has answered 403 on an otherwise green run (2026-09-14). The logs are a convenience,
+        # not a gate.
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: error-summary-main-${{ matrix.moodle }}-${{ matrix.php }}-${{ matrix.database }}
@@ -234,15 +270,22 @@ jobs:
       - name: No developer tooling, CI plumbing or test harnesses may ship
         run: |
           rc=0
+          # The change log is the one file under docs/ that ships: the README links to it.
+          allowed='^stackmatheditor/docs/$|^stackmatheditor/docs/CHANGES\.md$'
           while read -r forbidden; do
-            if grep -qE "^stackmatheditor/${forbidden}" /tmp/release.list; then
+            hits=$(grep -E "^stackmatheditor/${forbidden}" /tmp/release.list | grep -vE "$allowed" || true)
+            if [ -n "$hits" ]; then
               echo "FORBIDDEN in release artefact: $forbidden"
-              grep -E "^stackmatheditor/${forbidden}" /tmp/release.list | head -5
+              echo "$hits" | head -5
               rc=1
             fi
           done <<'PATTERNS'
           tools/
           docs/
+          tests/upgrade/
+          tests/concurrency/
+          tests/release/
+          tests/a11y-nvda/
           \.github/
           \.idea/
           tests/load/
@@ -303,8 +346,7 @@ jobs:
           ini-values: max_input_vars=5000
       - name: Install Maxima and gnuplot (STACK CAS)
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq maxima gnuplot-nox
+          bash plugin/.github/install-maxima.sh
       - name: Initialise moodle-plugin-ci
         run: |
           composer create-project -n --no-dev --prefer-dist moodlehq/moodle-plugin-ci ci ^4
@@ -337,6 +379,10 @@ jobs:
           COVERAGE_FLOOR: '40'
       - name: Upload the Clover report
         if: ${{ always() }}
+        # A failed artifact upload must not fail a job whose checks passed: the finalize call
+        # has answered 403 on an otherwise green run (2026-09-14). The logs are a convenience,
+        # not a gate.
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: coverage-clover
@@ -377,6 +423,11 @@ jobs:
           release=$(grep -oE "\\\$plugin->release[[:space:]]*=[[:space:]]*'[^']+'" version.php | grep -oE "'[^']+'")
           echo "Declared maturity: ${maturity:-unknown}, release ${release:-unknown}"
           echo "All release gates are green."
+      # The manual sign-off of this build: well-formed, for the build in version.php, every
+      # risk described. Open items are listed here; release-artefact.yml refuses a stable tag
+      # while one is open.
+      - name: Release sign-off file
+        run: python3 .github/check-signoff.py . | tee -a "$GITHUB_STEP_SUMMARY"
 
   stale-files:
     name: Stale files
@@ -406,9 +457,168 @@ jobs:
           fi
           echo "No stale files found."
 
+  upgrade:
+    # Every existing site reaches this build by upgrading, and nothing else in CI takes that path
+    # - the matrix installs fresh. This installs the previous release, seeds what a real site of
+    # that release holds (configuration, a deleted quiz's rows, a duplicate), upgrades in place to
+    # this commit and checks the schema, the repaired data and that every setting has the value
+    # of a fresh install. On both database families: the upgrade step runs SQL of its own.
+    name: Upgrade from the previous release / ${{ matrix.database }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [pgsql, mariadb]
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: moodle
+          POSTGRES_PASSWORD: moodle
+          POSTGRES_DB: moodle
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready" --health-interval=10s
+          --health-timeout=5s --health-retries=5
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: moodle
+        ports:
+          - 3306:3306
+        options: --health-cmd="mariadb-admin ping -pmoodle" --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      MOODLE_BRANCH: MOODLE_405_STABLE
+      MOODLE_ADMIN_PASS: 'Admin!23'
+      DB_TYPE: ${{ matrix.database }}
+    steps:
+      - name: Check out this commit
+        uses: actions/checkout@v6
+        with:
+          path: plugin-new
+
+      # The package moodle.org hands to a site administrator - the newest published version
+      # older than this commit - not a rebuild from this repository's history. Looking for the
+      # release in the history found nothing: 1.2.2 was released from a branch of its own.
+      - name: Fetch the previous release from the Moodle plugins directory
+        run: bash plugin-new/.github/fetch-previous-release.sh plugin-new plugin
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pgsql, mysqli, gd, intl, zip, soap, mbstring, curl, xml, exif
+          ini-values: max_input_vars=5000
+          coverage: none
+
+      - name: Install Maxima (STACK)
+        run: |
+          bash plugin-new/.github/install-maxima.sh
+
+      - name: Create the MariaDB database with Moodle's character set
+        if: ${{ matrix.database == 'mariadb' }}
+        run: |
+          mysql -h 127.0.0.1 -P 3306 -uroot -pmoodle -e \
+            "CREATE DATABASE moodle DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+             CREATE USER 'moodle'@'%' IDENTIFIED BY 'moodle';
+             GRANT ALL PRIVILEGES ON moodle.* TO 'moodle'@'%';"
+
+      - name: Install a site with the previous release
+        run: bash plugin-new/.github/build-test-site.sh
+
+      - name: Seed configuration, a deleted quiz and a duplicate the way the previous release leaves them
+        run: |
+          web=moodle; [ -d moodle/public ] && web=moodle/public
+          php plugin-new/tests/upgrade/seed_before.php "$web"
+
+      - name: Upgrade in place to this commit
+        run: |
+          web=moodle; [ -d moodle/public ] && web=moodle/public
+          rsync -a --delete --exclude .git plugin-new/ "$web/local/stackmatheditor/"
+          # admin/cli stays outside the web root on Moodle 5.1+, so it is moodle/admin/cli everywhere.
+          php moodle/admin/cli/upgrade.php --non-interactive
+          php moodle/admin/cli/check_database_schema.php
+
+      - name: Check what the upgrade left behind
+        run: |
+          web=moodle; [ -d moodle/public ] && web=moodle/public
+          php plugin-new/tests/upgrade/verify_after.php "$web"
+
+  concurrency:
+    # One configuration per scope under real concurrency (#87): the unit tests run in one process
+    # and one transaction and can only show that a held lock makes a writer wait. This installs a
+    # real site on each database family and lets several PHP processes write the same scopes at
+    # the same moment (tests/concurrency/concurrent_save.php). The control run uses the previous
+    # release's write path and only reports - it shows the load really races.
+    name: Concurrent writes / ${{ matrix.database }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [pgsql, mariadb]
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: moodle
+          POSTGRES_PASSWORD: moodle
+          POSTGRES_DB: moodle
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready" --health-interval=10s
+          --health-timeout=5s --health-retries=5
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: moodle
+        ports:
+          - 3306:3306
+        options: --health-cmd="mariadb-admin ping -pmoodle" --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      MOODLE_BRANCH: MOODLE_405_STABLE
+      MOODLE_ADMIN_PASS: 'Admin!23'
+      DB_TYPE: ${{ matrix.database }}
+    steps:
+      - name: Check out this commit
+        uses: actions/checkout@v6
+        with:
+          path: plugin
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pgsql, mysqli, gd, intl, zip, soap, mbstring, curl, xml, exif
+          ini-values: max_input_vars=5000
+          coverage: none
+      - name: Install Maxima (STACK)
+        run: bash plugin/.github/install-maxima.sh
+      - name: Create the MariaDB database with Moodle's character set
+        if: ${{ matrix.database == 'mariadb' }}
+        run: |
+          mysql -h 127.0.0.1 -P 3306 -uroot -pmoodle -e \
+            "CREATE DATABASE moodle DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+             CREATE USER 'moodle'@'%' IDENTIFIED BY 'moodle';
+             GRANT ALL PRIVILEGES ON moodle.* TO 'moodle'@'%';"
+      - name: Install a site with STACK and this commit
+        run: bash plugin/.github/build-test-site.sh
+      - name: Control - the previous write path under the same load
+        run: |
+          web=moodle; [ -d moodle/public ] && web=moodle/public
+          php plugin/tests/concurrency/concurrent_save.php "$web" --control --workers=12 --rounds=30
+      - name: One row per scope under concurrent writes
+        run: |
+          web=moodle; [ -d moodle/public ] && web=moodle/public
+          for run in 1 2 3; do
+            php plugin/tests/concurrency/concurrent_save.php "$web" --workers=12 --rounds=30
+          done
+
   ci-complete:
     name: CI complete
-    needs: [maturity-gate, stale-files]
+    needs: [maturity-gate, stale-files, upgrade, concurrency]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     if: always()
@@ -420,7 +630,9 @@ jobs:
           rc=0
           for entry in \
             "maturity-gate=${{ needs.maturity-gate.result }}" \
-            "stale-files=${{ needs.stale-files.result }}"; do
+            "stale-files=${{ needs.stale-files.result }}" \
+            "upgrade=${{ needs.upgrade.result }}" \
+            "concurrency=${{ needs.concurrency.result }}"; do
             echo "  ${entry%%=*}: ${entry#*=}"
             if [[ "${entry#*=}" != "success" ]]; then
               rc=1

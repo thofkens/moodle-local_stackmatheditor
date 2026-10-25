@@ -62,11 +62,24 @@ final class definitions_test extends advanced_testcase {
     }
 
     /**
+     * Groups whose buttons depend on a site setting and may therefore be empty (#45).
+     */
+    private const CONFIGURABLE_GROUPS = ['vector_differential'];
+
+    /**
      * Every group must have at least one element.
+     *
+     * Except the differential operators: their buttons exist only once an administrator has
+     * named the Maxima function for each of them (#45). A group that is empty because nothing
+     * has been configured is still listed, so that the setting and the dependency hint (#66)
+     * have somewhere to appear.
      */
     public function test_groups_have_elements(): void {
         $groups = definitions::get_element_groups();
         foreach ($groups as $key => $group) {
+            if (in_array($key, self::CONFIGURABLE_GROUPS, true)) {
+                continue;
+            }
             $this->assertNotEmpty(
                 $group['elements'],
                 "Group '$key' must have at least one element"
@@ -75,7 +88,7 @@ final class definitions_test extends advanced_testcase {
     }
 
     /**
-     * Every element must have either 'write' or 'cmd', and a display key.
+     * Every element must have 'write', 'cmd' or 'matrix', and a display key.
      *
      * Elements may use 'display' (plain text) or 'display_html' (HTML literal).
      */
@@ -85,9 +98,40 @@ final class definitions_test extends advanced_testcase {
             foreach ($group['elements'] as $i => $el) {
                 $ref = "Group '$groupkey' element[$i]";
                 $this->assertTrue(
-                    isset($el['write']) || isset($el['cmd']),
-                    "$ref must have 'write' or 'cmd'"
+                    isset($el['write']) || isset($el['cmd']) || isset($el['matrix'])
+                        || isset($el['popup']),
+                    "$ref must have 'write', 'cmd', 'matrix' or 'popup'"
                 );
+                if (isset($el['popup'])) {
+                    // A popup button names the chooser the toolbar opens (#62); the structure
+                    // itself comes from the structured model, not from this definition.
+                    $this->assertContains(
+                        $el['popup'],
+                        ['matrix', 'vector'],
+                        "$ref 'popup' must be 'matrix' or 'vector'"
+                    );
+                }
+                if (isset($el['matrix'])) {
+                    // A matrix button carries a structure, not a LaTeX string: it is inserted
+                    // through MathQuill's insertMatrix(), which needs both dimensions.
+                    $this->assertIsArray($el['matrix'], "$ref 'matrix' must be an array");
+                    foreach (['rows', 'columns'] as $key) {
+                        $this->assertArrayHasKey(
+                            $key,
+                            $el['matrix'],
+                            "$ref 'matrix' must have '$key'"
+                        );
+                        $this->assertIsInt(
+                            $el['matrix'][$key],
+                            "$ref 'matrix' $key must be an integer"
+                        );
+                        $this->assertGreaterThanOrEqual(
+                            1,
+                            $el['matrix'][$key],
+                            "$ref 'matrix' $key must be at least 1"
+                        );
+                    }
+                }
                 // Accept 'display' (plain text) or 'display_html' (HTML label).
                 $hasdisplay = isset($el['display']) || isset($el['display_html']);
                 $this->assertTrue(
@@ -115,13 +159,12 @@ final class definitions_test extends advanced_testcase {
             'comparators', 'absolute', 'brackets',
             'constants_math', 'trigonometry', 'greek_lower', 'greek_upper',
         ];
-        // Optional groups that may be disabled/commented out in some builds.
-        // Tested only when present.
+        // Optional groups: shipped, but off by default. Deferred operations no longer live in
+        // definitions.php at all - see docs/toolbar-backlog.md (#34).
         $optional = [
-            'set_theory', 'logic', 'constants_nature', 'geometry', 'hyperbolic',
-            'analysis_operators', 'vector_operators', 'differential_operators',
-            'vector_differential', 'matrix_operators', 'integral_operators',
-            'statistical_operators',
+            'set_theory', 'logic', 'geometry', 'vector_operators', 'vector_products',
+            'differential_operators', 'vector_differential', 'matrix_operators',
+            'integral_operators',
         ];
         foreach ($required as $key) {
             $this->assertArrayHasKey(
@@ -214,6 +257,10 @@ final class definitions_test extends advanced_testcase {
         $labels = definitions::get_group_labels_with_examples();
         foreach ($labels as $key => $label) {
             $this->assertIsString($label, "Label for '$key' must be string");
+            if (in_array($key, self::CONFIGURABLE_GROUPS, true)) {
+                // No buttons yet, so no examples to show (#45).
+                continue;
+            }
             // Each label should have the format "Name (x, y, z, …)" or similar.
             $this->assertStringContainsString(
                 '(',
@@ -361,6 +408,48 @@ final class definitions_test extends advanced_testcase {
                     "Group '{$groupkey}', button {$index} has no tooltip (accessible name)."
                 );
             }
+        }
+    }
+
+    /**
+     * The groups a teacher can pick must actually be in the catalogue (#34).
+     *
+     * Vectors, matrices and geometry lived inside a comment block for a long time, which is not
+     * visible from the outside: the settings page simply did not list them.
+     *
+     * @return void
+     */
+    public function test_the_expected_groups_are_offered(): void {
+        $groups = definitions::get_element_groups();
+
+        foreach (
+            [
+            'vector_operators',
+            'vector_differential',
+            'matrix_operators',
+            'geometry',
+            ] as $key
+        ) {
+            $this->assertArrayHasKey($key, $groups, "group $key is missing");
+            $this->assertArrayHasKey(
+                $key,
+                definitions::get_group_labels_with_examples(),
+                "group $key is not offered in the settings"
+            );
+        }
+    }
+
+    /**
+     * A group that is offered has buttons - except where a setting decides (#45).
+     *
+     * @return void
+     */
+    public function test_offered_groups_have_buttons(): void {
+        foreach (definitions::get_element_groups() as $key => $group) {
+            if (in_array($key, self::CONFIGURABLE_GROUPS, true)) {
+                continue;
+            }
+            $this->assertNotEmpty($group['elements'] ?? [], "group $key has no buttons");
         }
     }
 }

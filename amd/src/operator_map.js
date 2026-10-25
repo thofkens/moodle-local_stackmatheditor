@@ -14,7 +14,7 @@
 // along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * Central mapping table for the set-theory and logic operators (#35).
+ * Central mapping table for the set-theory and logic operators.
  *
  * One specification for both converters and for the tests. The Maxima side was verified against
  * the STACK 4.13 security map: set operations exist only as functions (union, intersection,

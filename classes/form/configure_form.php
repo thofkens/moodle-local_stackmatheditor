@@ -95,7 +95,10 @@ class configure_form extends \moodleform {
                 $collapseid    = 'sme-question-preview';
                 $previewbutton =
                     '<a class="btn btn-outline-secondary btn-sm"'
-                    . ' data-toggle="collapse"'
+                    // Both attributes: Bootstrap 4 (Moodle 4.5) reads data-toggle, Bootstrap 5
+                    // (Moodle 5.x) data-bs-toggle; its compatibility layer for the old name is
+                    // deprecated.
+                    . ' data-toggle="collapse" data-bs-toggle="collapse"'
                     . ' href="#' . $collapseid . '"'
                     . ' role="button" aria-expanded="false"'
                     . ' aria-controls="' . $collapseid . '">'
@@ -144,8 +147,8 @@ class configure_form extends \moodleform {
                 'static',
                 'enabled_info',
                 '',
-                '<span class="badge badge-secondary px-2 py-1">'
-                    . '<i class="fa fa-lock mr-1" aria-hidden="true"></i>'
+                '<span class="badge badge-secondary bg-secondary px-2 py-1">'
+                    . '<i class="fa fa-lock mr-1 me-1" aria-hidden="true"></i>'
                     . get_string('configure_enabled_locked_off', 'local_stackmatheditor')
                     . '</span>'
             );
@@ -155,8 +158,8 @@ class configure_form extends \moodleform {
                 'static',
                 'enabled_info',
                 '',
-                '<span class="badge badge-success px-2 py-1">'
-                    . '<i class="fa fa-lock mr-1" aria-hidden="true"></i>'
+                '<span class="badge badge-success bg-success px-2 py-1">'
+                    . '<i class="fa fa-lock mr-1 me-1" aria-hidden="true"></i>'
                     . get_string('configure_enabled_locked_on', 'local_stackmatheditor')
                     . '</span>'
             );
@@ -194,10 +197,35 @@ class configure_form extends \moodleform {
                 'enabled_hint',
                 '',
                 '<small class="text-muted">'
-                    . '<i class="fa fa-info-circle mr-1" aria-hidden="true"></i>'
+                    . '<i class="fa fa-info-circle mr-1 me-1" aria-hidden="true"></i>'
                     . $parenthint
                     . '</small>'
             );
+        }
+
+        // The student switch. Not only in the override modes: with the editor on everywhere
+        // (mode 1) a quiz or a question must still be able to take the switch away - and in
+        // mode 1 there is no activation checkbox for it to sit under. Mode 0 has no editor, so there is no switch to allow.
+        if ($instancemode !== 0) {
+            $mform->addElement(
+                'advcheckbox',
+                'allowstudenttoggle',
+                get_string('configure_studenttoggle_label', 'local_stackmatheditor'),
+                get_string('configure_studenttoggle_checkboxlabel', 'local_stackmatheditor'),
+                ['id' => 'id_sme_allowstudenttoggle'],
+                [0, 1]
+            );
+            $mform->setType('allowstudenttoggle', PARAM_INT);
+            $mform->addHelpButton(
+                'allowstudenttoggle',
+                'configure_studenttoggle_label',
+                'local_stackmatheditor'
+            );
+            // Only where an activation checkbox exists: a rule against a field that is not on the
+            // form disables the switch for good, which is how mode 1 lost it.
+            if ($instancemode === 2 || $instancemode === 3) {
+                $mform->disabledIf('allowstudenttoggle', 'enabled', 'notchecked');
+            }
         }
 
         // Toolbar groups section.
@@ -222,31 +250,106 @@ class configure_form extends \moodleform {
             'local_stackmatheditor'
         );
 
-        // Variable mode section.
+        // The chooser limit. It only means something with a structured group, so the field
+        // is disabled without one - visible, so that the dependency is visible too. An empty
+        // value inherits from the level above.
         $mform->addElement(
-            'header',
-            'variablesection',
-            get_string('label_variablemode', 'local_stackmatheditor')
+            'text',
+            'maxdimension',
+            get_string('setting_maxstructureddimension', 'local_stackmatheditor'),
+            ['size' => 4, 'id' => 'id_sme_maxdimension']
         );
-        $mform->setExpanded('variablesection', true);
+        $mform->setType('maxdimension', PARAM_RAW_TRIMMED);
+        $mform->addHelpButton('maxdimension', 'setting_maxstructureddimension', 'local_stackmatheditor');
 
-        $varmodelabel = ($mode === 'quiz')
-            ? get_string('label_variablemode_quiz', 'local_stackmatheditor')
-            : get_string('label_variablemode', 'local_stackmatheditor');
+        // Groups whose CAS packages this question does not load. The choice can still be
+        // made and saved: the author configures the group now and loads the package afterwards.
+        // Until then the group stays hidden from learners, and here is what to add.
+        $dependencies = $customdata['dependencies'] ?? [];
 
-        $mform->addElement('select', 'variablemode', $varmodelabel, [
-            definitions::IMPLICIT_EXPLICIT_SINGLE =>
-                get_string('implicitmode_explicit_single', 'local_stackmatheditor'),
-            definitions::IMPLICIT_EXPLICIT_MULTI =>
-                get_string('implicitmode_explicit_multi', 'local_stackmatheditor'),
-            definitions::IMPLICIT_SPACE_SINGLE =>
-                get_string('implicitmode_space_single', 'local_stackmatheditor'),
-            definitions::IMPLICIT_SPACE_MULTI =>
-                get_string('implicitmode_space_multi', 'local_stackmatheditor'),
-            definitions::IMPLICIT_STACK =>
-                get_string('implicitmode_stack', 'local_stackmatheditor'),
-        ]);
-        $mform->setDefault('variablemode', definitions::IMPLICIT_STACK);
+        foreach ($dependencies as $key => $status) {
+            if (!empty($status['available'])) {
+                continue;
+            }
+
+            $label = $grouplabels[$key] ?? $key;
+            $lines = [];
+
+            if (!empty($status['unknown'])) {
+                $lines[] = get_string('dependency_unknown', 'local_stackmatheditor');
+            }
+
+            foreach ($status['requirements'] as $requirement) {
+                if (!empty($requirement['satisfied']) || $requirement['instruction'] === '') {
+                    continue;
+                }
+                $lines[] = get_string(
+                    'dependency_missing',
+                    'local_stackmatheditor',
+                    (object) [
+                        'package'     => s($requirement['package']),
+                        'instruction' => s($requirement['instruction']),
+                    ]
+                );
+            }
+
+            $mform->addElement(
+                'static',
+                'dependency_' . $key,
+                \html_writer::span(
+                    get_string('dependency_marker', 'local_stackmatheditor', s($label))
+                ),
+                \html_writer::div(
+                    implode(\html_writer::empty_tag('br'), $lines),
+                    'text-muted small'
+                )
+            );
+        }
+
+        // STACK input semantics. Read-only: STACK stores "insert stars" per input, and
+        // that is where it is edited. The editor only makes the value visible where the toolbar
+        // is configured.
+        $semantics = $customdata['stacksemantics'] ?? ['inputs' => [], 'editurl' => null];
+
+        if ($mode === 'question' && !empty($semantics['inputs'])) {
+            $mform->addElement(
+                'header',
+                'stacksemanticssection',
+                get_string('stacksemantics', 'local_stackmatheditor')
+            );
+            $mform->setExpanded('stacksemanticssection', true);
+
+            foreach ($semantics['inputs'] as $index => $input) {
+                $mform->addElement(
+                    'static',
+                    'stackinsertstars' . $index,
+                    s($input['name']),
+                    \html_writer::span(s($input['label']))
+                );
+            }
+
+            $mform->addElement(
+                'static',
+                'stacksemanticsnote',
+                '',
+                \html_writer::span(
+                    get_string('stacksemantics_desc', 'local_stackmatheditor'),
+                    'text-muted'
+                )
+            );
+
+            if (!empty($semantics['editurl'])) {
+                $mform->addElement(
+                    'static',
+                    'stacksemanticsedit',
+                    '',
+                    \html_writer::link(
+                        $semantics['editurl'],
+                        get_string('stacksemantics_edit', 'local_stackmatheditor')
+                    )
+                );
+            }
+        }
 
         // Buttons.
         $buttons   = [];
@@ -266,5 +369,34 @@ class configure_form extends \moodleform {
 
         $mform->addGroup($buttons, 'buttonar', '', ' ', false);
         $mform->closeHeaderBefore('buttonar');
+    }
+
+    /**
+     * Refuse a dimension the plugin cannot honour.
+     *
+     * @param array $data Submitted data.
+     * @param array $files Submitted files.
+     * @return array Errors by element name.
+     */
+    public function validation($data, $files) {
+        $errors = parent::validation($data, $files);
+
+        if (isset($data['maxdimension'])) {
+            $error = \local_stackmatheditor\definitions::validate_max_dimension_input(
+                (string) $data['maxdimension']
+            );
+            if ($error !== null) {
+                $errors['maxdimension'] = get_string(
+                    $error,
+                    'local_stackmatheditor',
+                    (object) [
+                        'min' => \local_stackmatheditor\definitions::MIN_STRUCTURED_DIMENSION,
+                        'max' => \local_stackmatheditor\definitions::MAX_STRUCTURED_DIMENSION,
+                    ]
+                );
+            }
+        }
+
+        return $errors;
     }
 }

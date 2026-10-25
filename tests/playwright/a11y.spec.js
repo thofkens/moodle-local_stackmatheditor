@@ -27,7 +27,10 @@
 
 const {test, expect} = require('@playwright/test');
 const AxeBuilder = require('@axe-core/playwright').default;
-const {env, loginAs} = require('./helpers');
+const {env, loginAs, openPage, closeLeftovers} = require('./helpers');
+
+// The contexts these tests open are closed whether the test passes or not.
+test.afterEach(closeLeftovers);
 
 const WCAG = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 
@@ -53,7 +56,7 @@ async function axe(page, include, info, label) {
 test('attempt page: editors and toolbars are accessible', async({browser}, info) => {
     // Local reference: 30 s.
     test.setTimeout(90000);
-    const admin = await (await browser.newContext()).newPage();
+    const admin = await openPage(browser);
     await loginAs(admin, env('SME_ADMIN_USER', 'admin'), env('SME_ADMIN_PASS'));
     await admin.goto('/admin/settings.php?section=local_stackmatheditor');
     await admin.locator('select[name="s_local_stackmatheditor_enabled"]').selectOption('1');
@@ -62,7 +65,7 @@ test('attempt page: editors and toolbars are accessible', async({browser}, info)
     await groups.selectOption(await groups.locator('option').evaluateAll((o) => o.map((x) => x.value)));
     await admin.getByRole('button', {name: 'Save changes'}).click();
 
-    const page = await (await browser.newContext()).newPage();
+    const page = await openPage(browser);
     await loginAs(page, 'sme_student03', env('SME_USER_PASS'));
     await page.goto('/mod/quiz/view.php?id=' + env('SME_LOAD_CMID'));
     await page.getByRole('button', {name: /Attempt quiz|Continue your attempt|Continue the last attempt/}).click();
@@ -73,6 +76,11 @@ test('attempt page: editors and toolbars are accessible', async({browser}, info)
     await page.waitForFunction(() => document.querySelectorAll('.que.stack .mq-editable-field').length >= 10,
         null, {timeout: 30000});
 
+    // The mouse is still where "Start attempt" was clicked; on the next page a toolbar button can
+    // sit under it, and axe then measures that button in the middle of its hover transition.
+    // Measure the resting state.
+    await page.mouse.move(0, 0);
+    await page.waitForTimeout(300);
     const violations = await axe(page, ['.sme-toolbar', '.sme-mq-container', '.sme-equiv-wrap'], info, 'axe attempt');
     expect(violations, JSON.stringify(violations, null, 1)).toEqual([]);
 

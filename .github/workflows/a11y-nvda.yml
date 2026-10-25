@@ -1,0 +1,322 @@
+# Screen reader evidence with a real NVDA, entirely inside GitHub Actions (#69).
+#
+# Two facts make this a two-job workflow. NVDA exists only on Windows. The test site needs
+# Maxima for STACK and is built on Linux, exactly as the Playwright workflow builds it. So:
+#
+#   site  (ubuntu)   builds, seeds and serves the same site as playwright.yml, opens a
+#                    temporary public tunnel to it, publishes the URL and the seed values as an
+#                    artefact, and stays up until the Windows job says it is done
+#   nvda  (windows)  waits for that artefact, then runs tests/playwright/a11y-nvda.spec.js
+#                    against the tunnel with NVDA listening
+#
+# Nothing to type in: no URL, no course module id. The seed provides them, as it does for every
+# other browser spec.
+
+name: Accessibility (NVDA)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: a11y-nvda-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  site:
+    name: Test site behind a tunnel
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: bash
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: moodle
+          POSTGRES_PASSWORD: moodle
+          POSTGRES_DB: moodle
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready" --health-interval=10s
+          --health-timeout=5s --health-retries=5
+
+    env:
+      MOODLE_BRANCH: MOODLE_405_STABLE
+      MOODLE_WWWROOT: http://127.0.0.1:8000
+      MOODLE_ADMIN_PASS: 'Admin!23'
+
+    steps:
+      - name: Check out plugin
+        uses: actions/checkout@v6
+        with:
+          path: plugin
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pgsql, gd, intl, zip, soap, mbstring, curl, xml, exif
+          ini-values: max_input_vars=5000
+          coverage: none
+
+      - name: Install Maxima and gnuplot (STACK CAS)
+        run: |
+          bash plugin/.github/install-maxima.sh
+
+      - name: Build and install the test site (same script as playwright.yml)
+        run: bash plugin/.github/build-test-site.sh
+
+      - name: Seed course, users and quizzes (same seed as playwright.yml)
+        run: |
+          web=moodle; [ -d moodle/public ] && web=moodle/public
+          php "$web/local/stackmatheditor/tests/playwright/seed.php" --all-groups > /tmp/sme-seed.env \
+            || { echo "Seed failed. Its output:"; cat /tmp/sme-seed.env; exit 1; }
+          cat /tmp/sme-seed.env
+
+      - name: Open a tunnel and point Moodle at it
+        run: |
+          curl -sSL -o /tmp/cloudflared \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x /tmp/cloudflared
+
+          # The server and the tunnel have to outlive this step - the site stays up while the
+          # Windows job runs. A plain background process is tied to the step's shell and can go
+          # when the step ends, which is why serve-test-site.sh is normally sourced in the same
+          # step as the tests. Here they are detached from the step instead: setsid gives them a
+          # session of their own, nohup ignores the hang-up.
+          web=moodle; [ -d moodle/public ] && web=moodle/public
+          PHP_CLI_SERVER_WORKERS=8 setsid nohup php -S 127.0.0.1:8000 -t "$web" \
+            > /tmp/moodle-server.log 2>&1 < /dev/null &
+          for _ in $(seq 1 40); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
+              http://127.0.0.1:8000/login/index.php || true)
+            [ "$code" = "200" ] && break
+            sleep 3
+          done
+          echo "Local server: HTTP $code"
+
+          setsid nohup /tmp/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8000 \
+            > /tmp/cloudflared.log 2>&1 < /dev/null &
+
+          url=''
+          for _ in $(seq 1 60); do
+            # `|| true`: while the tunnel is still starting, grep finds nothing and exits 1, and
+            # with bash -e and pipefail that ended the whole step on the first try.
+            url=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/cloudflared.log \
+              2>/dev/null | head -1 || true)
+            [ -n "$url" ] && break
+            sleep 2
+          done
+          if [ -z "$url" ]; then
+            echo "The tunnel did not come up:"; tail -40 /tmp/cloudflared.log; exit 1
+          fi
+          echo "Tunnel: $url"
+
+          # Moodle redirects every request to wwwroot, so it has to be the address the Windows
+          # runner uses. The tunnel terminates TLS, PHP sees plain HTTP: sslproxy says so.
+          web=moodle; [ -d moodle/public ] && web=moodle/public
+          cfg=moodle/config.php
+          sed -i "s#^\$CFG->wwwroot *=.*#\$CFG->wwwroot = '$url';\n\$CFG->sslproxy = true;#" "$cfg"
+          grep -n "wwwroot\|sslproxy" "$cfg"
+          php moodle/admin/cli/purge_caches.php
+
+          # Wait until the site answers through the tunnel, not only locally.
+          for _ in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$url/login/index.php" || true)
+            [ "$code" = "200" ] && break
+            sleep 3
+          done
+          echo "Through the tunnel: HTTP $code"
+          [ "$code" = "200" ] || { tail -40 /tmp/moodle-server.log; exit 1; }
+
+          # The seed prints SME_BASE_URL too - the address the site had when it was seeded, which
+          # is 127.0.0.1. In GITHUB_ENV the last assignment wins, so that line sent the Windows
+          # browser to its own localhost. The seed's line is dropped; the tunnel is the only one.
+          mkdir -p handoff
+          {
+            sed -n "s/^export \([A-Z_][A-Z0-9_]*\)='\(.*\)'$/\1=\2/p" /tmp/sme-seed.env \
+              | grep -v '^SME_BASE_URL='
+            echo "SME_BASE_URL=$url"
+          } > handoff/site.env
+          [ "$(grep -c '^SME_BASE_URL=' handoff/site.env)" = "1" ] \
+            || { echo "::error::handoff/site.env must name exactly one SME_BASE_URL"; exit 1; }
+          cat handoff/site.env | sed 's/PASS=.*/PASS=***/'
+
+      - name: Hand the site to the Windows job
+        uses: actions/upload-artifact@v7
+        with:
+          name: nvda-site
+          path: handoff/site.env
+          retention-days: 1
+
+      - name: Stay up until NVDA is done
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The Windows job uploads "nvda-done" when it has finished, whatever the outcome.
+          for _ in $(seq 1 240); do
+            curl -s -o /dev/null --max-time 10 http://127.0.0.1:8000/login/index.php \
+              || echo "::warning::the local server stopped answering"
+            done=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
+              --jq '.artifacts[] | select(.name=="nvda-done") | .name' 2>/dev/null || true)
+            if [ "$done" = "nvda-done" ]; then
+              echo "NVDA finished; closing the site."
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::warning::NVDA did not finish within an hour; closing the site anyway."
+
+      - name: Server and tunnel logs
+        if: ${{ always() }}
+        run: |
+          tail -80 /tmp/moodle-server.log || true
+          tail -40 /tmp/cloudflared.log || true
+
+  nvda:
+    name: NVDA on Windows
+    # Named, not "latest": Guidepup lists the Windows versions it supports.
+    runs-on: windows-2025
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Check out plugin
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      # Guidepup comes in three parts that have to fit: the library the tests use, the setup tool
+      # that prepares Windows, and the NVDA build the setup tool downloads FOR that library. The
+      # setup action installed an NVDA for a newer library than the one in package.json, and the
+      # tests then found "NVDA not installed". The versions below are the ones the Guidepup
+      # Playwright project runs together in its own CI (library 0.33.0, integration 0.19.1,
+      # setup 0.24.1); the library versions are pinned in package.json for the same reason.
+      - name: Prepare Windows for screen reader automation
+        run: npx -y @guidepup/setup@0.24.1 setup --ci
+
+      - name: Install the browser suite
+        working-directory: tests/playwright
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install chromium
+
+      # After npm ci and in the project directory: the tool reads the installed library to
+      # decide which NVDA build it needs.
+      - name: Install NVDA for the installed Guidepup
+        working-directory: tests/playwright
+        run: |
+          npx -y @guidepup/setup@0.24.1 install nvda
+          # Ask the library itself whether it finds what was just installed - here, in one line,
+          # rather than as "NVDA not installed" in every test.
+          node -e "
+            let check;
+            try { check = require('@guidepup/guidepup/lib/windows/NVDA/isNVDAInstalled'); }
+            catch (e) { console.log('::notice::could not ask Guidepup about NVDA: ' + e.message); process.exit(0); }
+            if (!check.isNVDAInstalled()) {
+              console.log('::error::Guidepup ' + require('@guidepup/guidepup/package.json').version
+                + ' does not find the NVDA the setup tool installed');
+              process.exit(1);
+            }
+            console.log('Guidepup finds NVDA.');
+          "
+
+      - name: Wait for the test site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for _ in $(seq 1 120); do
+            id=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
+              --jq '.artifacts[] | select(.name=="nvda-site") | .id' 2>/dev/null || true)
+            if [ -n "$id" ]; then
+              gh api "repos/${{ github.repository }}/actions/artifacts/$id/zip" > site.zip
+              unzip -o -q site.zip -d handoff
+              cat handoff/site.env >> "$GITHUB_ENV"
+              sed 's/PASS=.*/PASS=***/' handoff/site.env
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "The test site never came up."; exit 1
+
+      # Fail here, with a sentence, if the browser on this runner could not reach the site -
+      # not five times over inside the tests with a connection error each.
+      - name: Check the site from this runner
+        run: |
+          case "$SME_BASE_URL" in
+            https://*.trycloudflare.com) ;;
+            *) echo "::error::SME_BASE_URL is '$SME_BASE_URL', not the tunnel"; exit 1 ;;
+          esac
+          code=000
+          for _ in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 \
+              "$SME_BASE_URL/login/index.php" || true)
+            [ "$code" = "200" ] && break
+            sleep 5
+          done
+          echo "Through the tunnel, from Windows: HTTP $code"
+          [ "$code" = "200" ] \
+            || { echo "::error::the test site answers HTTP $code through $SME_BASE_URL"; exit 1; }
+
+      - name: Record what NVDA says
+        working-directory: tests/playwright
+        env:
+          SME_NVDA: '1'
+          SME_STRICT_FIXTURES: '1'
+        run: npx playwright test --project=nvda
+
+      # The run page shows this without opening a log: what failed and why, and what NVDA said.
+      - name: Summarise and check the run is complete
+        if: ${{ always() }}
+        working-directory: tests/playwright
+        env:
+          SME_NVDA: '1'
+          SME_STRICT_FIXTURES: '1'
+        run: node run-summary.js "NVDA" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Collect the transcripts
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: a11y-nvda-${{ github.run_id }}
+          path: |
+            tests/playwright/transcripts
+            tests/playwright/playwright-report
+            tests/playwright/test-results
+          retention-days: 90
+          if-no-files-found: warn
+
+      - name: Tell the site job it can stop
+        if: ${{ always() }}
+        run: |
+          mkdir -p done && echo finished > done/done.txt
+
+      - name: Signal completion
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: nvda-done
+          path: done/done.txt
+          retention-days: 1
+
+      - name: What a person still has to say
+        if: ${{ always() }}
+        run: |
+          echo "Read transcripts/*.txt in the a11y-nvda artefact and answer, with the date,"
+          echo "the browser and the NVDA version:"
+          echo "  [ ] is what NVDA says understandable, not merely present?"
+          echo "  [ ] does the order of announcements match the order of the task?"
+          echo "  [ ] is anything read out twice, or read when it should be silent?"

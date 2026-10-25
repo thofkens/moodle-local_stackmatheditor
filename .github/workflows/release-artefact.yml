@@ -1,0 +1,746 @@
+# Release artefact - local_stackmatheditor
+#
+# Builds the distributable ZIP from a tag and tests exactly that ZIP before it attaches it to a
+# GitHub Release: installed into fresh Moodle 4.5 and 5.3 sites and smoked there (configuration,
+# backup and restore, deletion, concurrent writes, the CLI scripts); installed as an upgrade over
+# the version the Moodle plugins directory published before it; and the plugin's PHPUnit tests
+# and Behat scenarios run from the archive. The ZIP's SHA-256 is published next to it.
+# release-guard.yml makes sure no release reaches GitHub any other way.
+#
+# Taken over from moodle-mod_vimipad and adapted: a local plugin (root folder "stackmatheditor",
+# installed into local/), STACK and its behaviours as dependencies of the install check, and the
+# vendored MathQuill build checked against the checksums its provenance file names.
+#
+# The package is uploaded with archive: false, so the file you download is the plugin itself and
+# not a ZIP inside GitHub's artifact ZIP - the nested archive browsers flag as potentially
+# malicious.
+#
+# Nothing committed is rebuilt here: amd/build and thirdparty/mathquill are part of the
+# repository, and a release job that rebuilt them would publish something nobody had tested.
+# Whether amd/build matches amd/src is checked by moodle-plugin-ci-main.yml (grunt), and that run
+# has to be green on the tagged commit.
+
+name: Release artefact
+
+on:
+  push:
+    tags:
+      - 'v1.*'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Optional: a different tag, branch or commit. Empty = the ref selected above.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  actions: write
+  checks: read
+
+concurrency:
+  group: release-artefact-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  artefact:
+    name: Build and validate the release ZIP
+    runs-on: ubuntu-24.04
+    outputs:
+      name: ${{ steps.zip.outputs.name }}
+      internid: ${{ steps.intern.outputs.artifact-id }}
+      release: ${{ steps.version.outputs.release }}
+      version: ${{ steps.version.outputs.version }}
+      maturity: ${{ steps.version.outputs.maturity }}
+      resolved: ${{ steps.ref.outputs.resolved }}
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v6
+        with:
+          path: plugin
+          fetch-depth: 0
+
+      - name: Move to the ref this release is built from
+        id: ref
+        run: |
+          cd plugin
+          ref="${{ github.event.inputs.ref || github.ref }}"
+          if ! resolved=$(git rev-parse --verify --quiet "${ref}^{commit}"); then
+            echo "'$ref' laesst sich in diesem Repository nicht aufloesen."
+            git tag --list | tail -10
+            exit 1
+          fi
+          git checkout --detach "$resolved"
+          echo "Gebaut wird aus $resolved"
+          echo "resolved=$resolved" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse to publish a commit the pipeline never passed
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The commit that was tested must be the commit that was tagged. Only conclusions
+          # count, so a run still in progress is not a pass; this job is excluded, or it would
+          # wait for itself.
+          sha="${{ github.sha }}"
+          runs=$(gh api --paginate \
+            "repos/${{ github.repository }}/commits/$sha/check-runs" \
+            --jq '.check_runs[] | select(.name != "${{ github.job }}") | [.name, .status, (.conclusion // "pending")] | @tsv')
+          if [ -z "$runs" ]; then
+            echo "Fuer diesen Commit gibt es keine Check-Runs - nicht veroeffentlichen."
+            exit 1
+          fi
+          echo "$runs" | while IFS=$'\t' read -r name status conclusion; do
+            printf '  %-60s %-12s %s\n' "$name" "$status" "$conclusion"
+          done
+          bad=$(echo "$runs" | awk -F'\t' '
+            $2 != "completed" { print; next }
+            $3 != "success" && $3 != "neutral" && $3 != "skipped" { print }
+          ')
+          if [ -n "$bad" ]; then
+            echo "Nicht abgeschlossene oder fehlgeschlagene Laeufe:"
+            echo "$bad"
+            exit 1
+          fi
+          echo "Alle Check-Runs auf $sha sind abgeschlossen und gruen."
+
+      - name: Require the code gates and the release evidence on this commit
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Check-runs only list what ran. The gates the release needs - main CI, Playwright on
+          # 4.5 and 5.3, NVDA, k6, JMeter - and the release evidence have to have run on exactly
+          # this commit, finished, and be green. The gates are checked directly, not only through
+          # the evidence: an evidence run made before they finished proves nothing.
+          rc=0
+          bash plugin/.github/required-runs.sh "${{ github.repository }}" "${{ github.sha }}" release-evidence.yml || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo "Starten Sie die fehlenden Workflows auf ${{ github.sha }}, warten Sie sie ab und taggen Sie danach erneut."
+            exit 1
+          fi
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+
+      - name: Read the declared version
+        id: version
+        run: |
+          # version.php starts with defined(MOODLE_INTERNAL) || die() and uses Moodle
+          # constants; both are supplied so it can be read outside Moodle.
+          read_version() {
+            php -r '
+              define("MOODLE_INTERNAL", true);
+              define("MATURITY_ALPHA", 50);
+              define("MATURITY_BETA", 100);
+              define("MATURITY_RC", 150);
+              define("MATURITY_STABLE", 200);
+              $plugin = new stdClass();
+              require "plugin/version.php";
+              echo $plugin->{$argv[1]};
+            ' -- "$1"
+          }
+          release=$(read_version release)
+          version=$(read_version version)
+          maturity=$(read_version maturity)
+          component=$(read_version component)
+          if [ -z "$release" ] || [ -z "$version" ] || [ -z "$maturity" ]; then
+            echo "version.php liess sich nicht auslesen:"
+            echo "  release='$release' version='$version' maturity='$maturity'"
+            exit 1
+          fi
+          if [ "$component" != "local_stackmatheditor" ]; then
+            echo "version.php meldet die Komponente '$component' statt local_stackmatheditor."
+            exit 1
+          fi
+          echo "release=$release"   >> "$GITHUB_OUTPUT"
+          echo "version=$version"   >> "$GITHUB_OUTPUT"
+          echo "maturity=$maturity" >> "$GITHUB_OUTPUT"
+          echo "release=$release version=$version maturity=$maturity"
+          case "$GITHUB_REF" in
+            refs/tags/*) ;;
+            *) echo "Kein Tag-Lauf ($GITHUB_REF) - der Tag-Abgleich entfaellt."; exit 0 ;;
+          esac
+          tag="${GITHUB_REF#refs/tags/}"
+          if [ "$tag" != "v$release" ]; then
+            echo "Der Tag '$tag' passt nicht zu \$plugin->release ('$release'). Erwartet: 'v$release'."
+            exit 1
+          fi
+
+      - name: Check the version number against the tagged commit
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        run: |
+          # Checked, not written: rewriting version.php here would put a number in the ZIP that
+          # no commit contains. Unlike mod_vimipad the build number may be older than the
+          # tagged commit - a release can be finished and tagged a day after its build number
+          # was set - but never newer: a date in the future would make every later build look
+          # like a downgrade.
+          version="${{ steps.version.outputs.version }}"
+          versiondate="${version:0:8}"
+          commitdate=$(git -C plugin log -1 --format=%cd --date=format:%Y%m%d "${{ github.sha }}")
+          if [ "$versiondate" -gt "$commitdate" ]; then
+            echo "version.php traegt $versiondate, der getaggte Commit stammt vom $commitdate."
+            exit 1
+          fi
+          if [ "$versiondate" != "$commitdate" ]; then
+            echo "::notice::Build $version ist aelter als der getaggte Commit ($commitdate)."
+          fi
+          echo "Versionsdatum $versiondate, Commit $commitdate."
+
+      - name: Verify the vendored MathQuill build against its provenance
+        run: |
+          # thirdparty/readme_moodle.txt names the SHA-256 of the three runtime files; the
+          # archive must ship exactly those (#72: a rebuild of the fork has to reproduce them).
+          cd plugin
+          status=0
+          for file in mathquill.js mathquill.min.js mathquill.css; do
+            expected=$(awk -v f="$file" '$1 == f && length($2) == 64 { print $2 }' thirdparty/readme_moodle.txt | head -1)
+            actual=$(sha256sum "thirdparty/mathquill/$file" | cut -d' ' -f1)
+            if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+              echo "$file: readme_moodle.txt '$expected', Datei '$actual'"
+              status=1
+            else
+              echo "$file: $actual"
+            fi
+          done
+          version=$(sed -n 's#.*<version>\(.*\)</version>.*#\1#p' thirdpartylibs.xml | head -1)
+          grep -q "MathQuill $version " README.md || { echo "README nennt nicht MathQuill $version."; status=1; }
+          grep -q "Version: $version" thirdparty/readme_moodle.txt || { echo "readme_moodle.txt nennt nicht $version."; status=1; }
+          exit $status
+
+      - name: Verify that every AMD module has its committed build
+        run: |
+          cd plugin
+          missing=""
+          for src in amd/src/*.js; do
+            name=$(basename "$src" .js)
+            [ -f "amd/build/$name.min.js" ] || missing="$missing $name.min.js"
+            [ -f "amd/build/$name.min.js.map" ] || missing="$missing $name.min.js.map"
+          done
+          if [ -n "$missing" ]; then
+            echo "In amd/build fehlen:$missing"
+            exit 1
+          fi
+          echo "amd/build vollstaendig ($(ls amd/src/*.js | wc -l) Module)."
+
+      - name: Build the ZIP
+        id: zip
+        run: |
+          # git archive honours .gitattributes export-ignore, so this archive and the one
+          # GitHub generates for a tag contain the same files.
+          mkdir -p dist
+          git -C plugin archive --format=tar --prefix=stackmatheditor/ HEAD | tar -x -C dist
+          name="moodle-local_stackmatheditor-${{ steps.version.outputs.release }}-${{ steps.version.outputs.version }}.zip"
+          (cd dist && zip -qr "../$name" stackmatheditor)
+          sha256sum "$name" | tee "$name.sha256"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          unzip -l "$name" | tail -2
+
+      - name: Refuse to publish a ZIP with development files or unexpected languages
+        run: |
+          name="${{ steps.zip.outputs.name }}"
+          # English, and the German pack this plugin maintains itself (language_strings_test
+          # keeps the two in step). Anything else comes from AMOS.
+          if unzip -Z1 "$name" | grep -v '/$' | grep -P '/lang/(?!en/|de/)[a-z]'; then
+            echo "Das Archiv enthaelt Sprachpakete ausser Englisch und Deutsch."
+            exit 1
+          fi
+          if unzip -Z1 "$name" | grep -E 'node_modules|/\.git/|/\.github/|tests/(playwright|jest|load|upgrade|concurrency|release|a11y-nvda)/|/docs/sessions/|/tools/|__pycache__|\.pyc$'; then
+            echo "Das Archiv enthaelt Dateien, die nicht ausgeliefert werden duerfen."
+            exit 1
+          fi
+          echo "Keine Fremdartefakte im Archiv."
+
+      - name: Refuse to publish an archive with the wrong root directory
+        run: |
+          # Moodle installs by the root folder: exactly one, named after the plugin.
+          # core\update\validator rejects anything else with rootdirinvalid.
+          roots=$(unzip -Z1 "${{ steps.zip.outputs.name }}" | cut -d/ -f1 | sort -u)
+          if [ "$(echo "$roots" | wc -l)" != "1" ] || [ "$roots" != "stackmatheditor" ]; then
+            echo "Das Archiv muss genau ein Wurzelverzeichnis 'stackmatheditor' haben. Gefunden:"
+            echo "$roots" | sed 's/^/  /'
+            exit 1
+          fi
+          echo "Wurzelverzeichnis: stackmatheditor"
+
+      - name: Refuse to publish without the files a site needs at runtime
+        run: |
+          missing=""
+          for path in \
+            stackmatheditor/version.php \
+            stackmatheditor/LICENSE \
+            stackmatheditor/thirdpartylibs.xml \
+            stackmatheditor/lang/en/local_stackmatheditor.php \
+            stackmatheditor/db/install.xml \
+            stackmatheditor/db/access.php \
+            stackmatheditor/db/events.php \
+            stackmatheditor/db/upgrade.php \
+            stackmatheditor/classes/observer.php \
+            stackmatheditor/classes/data_maintenance.php \
+            stackmatheditor/cli/repair_config.php \
+            stackmatheditor/tests/fixtures/stack_algebraic.xml \
+            stackmatheditor/db/hooks.php \
+            stackmatheditor/backup/moodle2/backup_local_stackmatheditor_plugin.class.php \
+            stackmatheditor/backup/moodle2/restore_local_stackmatheditor_plugin.class.php \
+            stackmatheditor/classes/privacy/provider.php \
+            stackmatheditor/styles.css \
+            stackmatheditor/amd/build/mathquill_init.min.js \
+            stackmatheditor/thirdparty/mathquill/mathquill.min.js \
+            stackmatheditor/thirdparty/mathquill/mathquill.css \
+            stackmatheditor/docs/CHANGES.md
+          do
+            if ! unzip -l "${{ steps.zip.outputs.name }}" | grep -qF " $path"; then
+              missing="$missing $path"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "Im Archiv fehlen Dateien, die zur Laufzeit gebraucht werden:$missing"
+            exit 1
+          fi
+          echo "Alle Pflichtdateien im Archiv vorhanden."
+
+      - name: Refuse to publish a stable tag that is not declared stable
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        run: |
+          release="${{ steps.version.outputs.release }}"
+          maturity="${{ steps.version.outputs.maturity }}"
+          case "$release" in
+            *RC*|*beta*|*alpha*) echo "Vorabversion ($release)."; exit 0 ;;
+          esac
+          if [ "$maturity" != "200" ]; then
+            echo "Release '$release' ist kein Vorabrelease, version.php meldet aber maturity $maturity statt 200."
+            exit 1
+          fi
+          echo "Release $release ist als MATURITY_STABLE deklariert."
+
+      # What no workflow can check - the NVDA judgement, the Android devices - and the residual
+      # risks accepted instead of them: a stable release waits until every item of
+      # docs/RELEASE-SIGNOFF.json is done or accepted, with a date and a name.
+      - name: Require the manual sign-off of a stable release
+        if: ${{ startsWith(github.ref, 'refs/tags/') && steps.version.outputs.maturity == '200' }}
+        run: python3 plugin/.github/check-signoff.py plugin --complete
+
+      - name: Keep the artefact for the install check
+        id: intern
+        uses: actions/upload-artifact@v4
+        with:
+          name: intern-pruefpaket
+          path: |
+            ${{ steps.zip.outputs.name }}
+            ${{ steps.zip.outputs.name }}.sha256
+          retention-days: 7
+
+      - name: Say where the archive is
+        run: |
+          name="${{ steps.zip.outputs.name }}"
+          sum=$(cut -d' ' -f1 < "$name.sha256")
+          {
+            echo "## Release-Artefakt"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Datei | \`$name\` |"
+            echo "| SHA-256 | \`$sum\` |"
+            echo "| Version | ${{ steps.version.outputs.version }} |"
+            echo "| Release | ${{ steps.version.outputs.release }} |"
+            echo "| Commit | \`${{ steps.ref.outputs.resolved }}\` |"
+            echo
+            echo "Nach den Pruefjobs liegt \`$name\` unten unter **Artifacts** -"
+            echo "direkt installierbar, ohne zusaetzliche ZIP-Huelle."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  install:
+    name: Install the actual ZIP / ${{ matrix.moodle }}
+    needs: artefact
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # Both ends of the declared support range ($plugin->supported = [405, 503]).
+        moodle: [MOODLE_405_STABLE, MOODLE_503_STABLE]
+    services:
+      postgres:
+        # 17: Moodle 5.3 requires it, 4.5 accepts it.
+        image: postgres:17
+        env:
+          POSTGRES_USER: moodle
+          POSTGRES_PASSWORD: moodle
+          POSTGRES_DB: moodle
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 10
+        ports:
+          - 5432:5432
+
+    steps:
+      # Only the helper scripts (site build, smoke, concurrency), from the very commit the archive
+      # was built from. The plugin itself comes from the ZIP and nowhere else.
+      - name: Check out the helper scripts
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.artefact.outputs.resolved }}
+          path: helpers
+          sparse-checkout: |
+            .github
+            tests/release
+            tests/concurrency
+            tests/upgrade
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pgsql, zip, gd, intl, soap, mbstring, curl, xml, exif
+          ini-values: max_input_vars=5000
+          coverage: none
+
+      - name: Download the release ZIP
+        uses: actions/download-artifact@v4
+        with:
+          name: intern-pruefpaket
+          path: artefact
+
+      - name: Confirm the checksum before trusting the archive
+        run: |
+          cd artefact
+          name=$(ls ./*.zip)
+          sha256sum -c "$name.sha256"
+
+      - name: Unpack the ZIP as a site administrator would
+        run: |
+          # build-test-site.sh installs ./plugin into local/stackmatheditor; ./plugin is the
+          # unpacked archive, so the site runs exactly what is published.
+          mkdir unpacked
+          unzip -q artefact/*.zip -d unpacked
+          test -f unpacked/stackmatheditor/version.php
+          mv unpacked/stackmatheditor plugin
+          echo "Wurzelordner stimmt: stackmatheditor"
+
+      # STACK's install talks to Maxima while the site is installed.
+      - name: Install Maxima (STACK CAS)
+        run: bash helpers/.github/install-maxima.sh
+
+      - name: Install a fresh site with STACK and the plugin from the ZIP
+        env:
+          MOODLE_BRANCH: ${{ matrix.moodle }}
+          MOODLE_DATAROOT: ${{ runner.temp }}/moodledata
+        run: bash helpers/.github/build-test-site.sh
+
+      - name: Ask Moodle whether the plugin is installed and its schema is sound
+        run: |
+          web=moodle; [ -d moodle/public ] && web=moodle/public
+          php moodle/admin/cli/upgrade.php --non-interactive
+          php moodle/admin/cli/check_database_schema.php
+          WEB="$web" php -r '
+            define("CLI_SCRIPT", true);
+            require "moodle/config.php";
+            $installed = $DB->get_field("config_plugins", "value",
+                ["plugin" => "local_stackmatheditor", "name" => "version"]);
+            if (!$installed) {
+                fwrite(STDERR, "local_stackmatheditor ist nicht installiert.\n");
+                exit(1);
+            }
+            $plugin = new stdClass();
+            require getenv("WEB") . "/local/stackmatheditor/version.php";
+            if ((string) $installed !== (string) $plugin->version) {
+                fwrite(STDERR, "Installierte Version $installed weicht von version.php "
+                    . $plugin->version . " ab.\n");
+                exit(1);
+            }
+            printf("local_stackmatheditor %s (build %d) installiert, Reifegrad %d, Moodle %s.\n",
+                $plugin->release, $plugin->version, $plugin->maturity, $CFG->release);
+          '
+
+      - name: Run the shipped CLI scripts against the installed site
+        run: |
+          web=moodle; [ -d moodle/public ] && web=moodle/public
+          set -o pipefail
+          for script in diagnose_legacy_config.php repair_config.php; do
+            php "$web/local/stackmatheditor/cli/$script" 2>&1 | tee "cli-$script.log"
+            if grep -qiE 'fatal error|undefined function|undefined method|warning:|notice:|exception' "cli-$script.log"; then
+              echo "::error::$script hat einen Fehler ausgegeben"
+              exit 1
+            fi
+          done
+
+      - name: Smoke the paths a site uses - configuration, backup and restore, deletion
+        run: |
+          web=moodle; [ -d moodle/public ] && web=moodle/public
+          php helpers/tests/release/smoke.php "$web"
+
+      - name: One row per scope under concurrent writes
+        run: |
+          web=moodle; [ -d moodle/public ] && web=moodle/public
+          php helpers/tests/concurrency/concurrent_save.php "$web" --workers=12 --rounds=30
+
+  upgrade:
+    name: Upgrade the published release to this ZIP / ${{ matrix.moodle }} / ${{ matrix.database }}
+    needs: artefact
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # The upgrade step rewrites data with SQL of its own (orphans, duplicates), so it runs on
+        # both database families; the newest Moodle on PostgreSQL, the LTS on both.
+        include:
+          - {moodle: MOODLE_405_STABLE, database: pgsql}
+          - {moodle: MOODLE_405_STABLE, database: mariadb}
+          - {moodle: MOODLE_503_STABLE, database: pgsql}
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: moodle
+          POSTGRES_PASSWORD: moodle
+          POSTGRES_DB: moodle
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 10
+        ports:
+          - 5432:5432
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: moodle
+        ports:
+          - 3306:3306
+        options: --health-cmd="mariadb-admin ping -pmoodle" --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DB_TYPE: ${{ matrix.database }}
+    steps:
+      - name: Check out the helper scripts
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.artefact.outputs.resolved }}
+          path: helpers
+          sparse-checkout: |
+            .github
+            tests/upgrade
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pgsql, mysqli, zip, gd, intl, soap, mbstring, curl, xml, exif
+          ini-values: max_input_vars=5000
+          coverage: none
+
+      - name: Download the release ZIP
+        uses: actions/download-artifact@v4
+        with:
+          name: intern-pruefpaket
+          path: artefact
+
+      - name: Unpack the ZIP
+        run: |
+          cd artefact && sha256sum -c ./*.sha256 && cd ..
+          mkdir unpacked
+          unzip -q artefact/*.zip -d unpacked
+          test -f unpacked/stackmatheditor/version.php
+
+      - name: Create the MariaDB database with Moodle's character set
+        if: ${{ matrix.database == 'mariadb' }}
+        run: |
+          mysql -h 127.0.0.1 -P 3306 -uroot -pmoodle -e \
+            "CREATE DATABASE moodle DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+             CREATE USER 'moodle'@'%' IDENTIFIED BY 'moodle';
+             GRANT ALL PRIVILEGES ON moodle.* TO 'moodle'@'%';"
+
+      # The newest version the Moodle plugins directory publishes below the ZIP's version - what
+      # a site administrator actually has installed.
+      - name: Fetch the published previous release
+        run: bash helpers/.github/fetch-previous-release.sh unpacked/stackmatheditor plugin
+
+      - name: Install Maxima (STACK CAS)
+        run: bash helpers/.github/install-maxima.sh
+
+      - name: Install a site with the published release
+        env:
+          MOODLE_BRANCH: ${{ matrix.moodle }}
+          MOODLE_DATAROOT: ${{ runner.temp }}/moodledata
+        run: bash helpers/.github/build-test-site.sh
+
+      - name: Seed what the published release leaves behind
+        run: |
+          web=moodle; [ -d moodle/public ] && web=moodle/public
+          php helpers/tests/upgrade/seed_before.php "$web"
+
+      - name: Replace the plugin with the ZIP and upgrade
+        run: |
+          web=moodle; [ -d moodle/public ] && web=moodle/public
+          rm -rf "$web/local/stackmatheditor"
+          cp -a unpacked/stackmatheditor "$web/local/stackmatheditor"
+          php moodle/admin/cli/upgrade.php --non-interactive
+          php moodle/admin/cli/check_database_schema.php
+
+      - name: Check what the upgrade left behind
+        run: |
+          web=moodle; [ -d moodle/public ] && web=moodle/public
+          php helpers/tests/upgrade/verify_after.php "$web"
+
+  archive-tests:
+    # The plugin's own PHPUnit tests and Behat scenarios, run from the archive rather than from
+    # the repository: what ships has to pass on its own.
+    name: Plugin tests from the ZIP / MOODLE_405_STABLE
+    needs: artefact
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      STACK_BRANCH: master
+      ADAPTIVEMULTIPART_BRANCH: master
+      DFEXPLICITVAILDATE_BRANCH: master
+      DFCBMEXPLICITVAILDATE_BRANCH: master
+      IMPORTASVERSION_BRANCH: main
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: 'postgres'
+          POSTGRES_HOST_AUTH_METHOD: 'trust'
+        ports:
+          - 5432:5432
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 3
+    steps:
+      - name: Check out the helper scripts
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.artefact.outputs.resolved }}
+          path: helpers
+          sparse-checkout: .github
+
+      - name: Download the release ZIP
+        uses: actions/download-artifact@v4
+        with:
+          name: intern-pruefpaket
+          path: artefact
+
+      - name: Unpack the ZIP as the plugin under test
+        run: |
+          cd artefact && sha256sum -c ./*.sha256 && cd ..
+          mkdir unpacked
+          unzip -q artefact/*.zip -d unpacked
+          mv unpacked/stackmatheditor plugin
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pgsql, zip, gd, intl, soap, mbstring, curl, xml, exif
+          ini-values: max_input_vars=5000
+          coverage: none
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Install Maxima (STACK CAS)
+        run: bash helpers/.github/install-maxima.sh
+
+      - name: Initialise moodle-plugin-ci
+        run: |
+          composer create-project -n --no-dev --prefer-dist moodlehq/moodle-plugin-ci ci ^4
+          echo "$(cd ci/bin; pwd)" >> "$GITHUB_PATH"
+          echo "$(cd ci/vendor/bin; pwd)" >> "$GITHUB_PATH"
+          sudo locale-gen en_AU.UTF-8
+          echo "NVM_DIR=$HOME/.nvm" >> "$GITHUB_ENV"
+
+      - name: Install Moodle, STACK and the plugin from the ZIP
+        env:
+          DB: pgsql
+          MOODLE_BRANCH: MOODLE_405_STABLE
+        run: |
+          moodle-plugin-ci add-plugin --branch "$STACK_BRANCH" maths/moodle-qtype_stack
+          moodle-plugin-ci add-plugin --branch "$ADAPTIVEMULTIPART_BRANCH" maths/moodle-qbehaviour_adaptivemultipart
+          moodle-plugin-ci add-plugin --branch "$DFEXPLICITVAILDATE_BRANCH" maths/moodle-qbehaviour_dfexplicitvaildate
+          moodle-plugin-ci add-plugin --branch "$DFCBMEXPLICITVAILDATE_BRANCH" maths/moodle-qbehaviour_dfcbmexplicitvaildate
+          moodle-plugin-ci add-plugin --branch "$IMPORTASVERSION_BRANCH" maths/moodle-qbank_importasversion
+          moodle-plugin-ci install --plugin ./plugin --db-host=127.0.0.1
+
+      - name: PHPUnit from the archive
+        run: moodle-plugin-ci phpunit --fail-on-warning --testdox
+
+      - name: Initialise STACK CAS for the Behat site
+        working-directory: moodle
+        run: php "$GITHUB_WORKSPACE/helpers/.github/stack-behat-init.php"
+
+      - name: Behat from the archive
+        run: |
+          moodle-plugin-ci behat --profile chrome --auto-rerun 0 \
+            --tags "@local_stackmatheditor&&~@broken&&~@wip" --dump
+
+  publish:
+    name: Publish the release
+    needs: [artefact, install, upgrade, archive-tests]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download the release ZIP
+        uses: actions/download-artifact@v4
+        with:
+          name: intern-pruefpaket
+
+      # archive: false uploads each file as itself. Without it GitHub wraps the plugin ZIP in a
+      # second ZIP - the nested archive browsers flagged as malware. The input needs
+      # upload-artifact v7.
+      - name: Offer the plugin package
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ needs.artefact.outputs.name }}
+          archive: false
+          retention-days: 30
+
+      - name: Offer its checksum
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ needs.artefact.outputs.name }}.sha256
+          archive: false
+          retention-days: 30
+
+      - name: Remove the internal copy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          id="${{ needs.artefact.outputs.internid }}"
+          if [ -n "$id" ]; then
+            gh api --method DELETE "repos/${{ github.repository }}/actions/artifacts/$id"
+            echo "Internes Pruefpaket entfernt."
+          fi
+
+      - name: Publish the release
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ needs.artefact.outputs.name }}
+            ${{ needs.artefact.outputs.name }}.sha256
+          prerelease: ${{ contains(needs.artefact.outputs.release, 'RC') || contains(needs.artefact.outputs.release, 'beta') }}
+          body: |
+            **local_stackmatheditor ${{ needs.artefact.outputs.release }}** - build `${{ needs.artefact.outputs.version }}`
+
+            | | |
+            |---|---|
+            | Commit | `${{ github.sha }}` |
+            | Moodle | 4.5 LTS bis 5.3 |
+            | PHP | getestet mit 8.2 bis 8.4 |
+            | Abhaengigkeit | qtype_stack (2024010400 oder neuer) |
+            | Reifegrad | `${{ needs.artefact.outputs.maturity }}` (200 = MATURITY_STABLE) |
+            | Pruefsumme | SHA-256, als eigene Datei beigelegt |
+
+            Dieses Archiv wurde aus dem getaggten Commit erzeugt und, bevor es hier
+            erschien, genau so geprueft: in frische Moodle-4.5- und -5.3-Installationen
+            mit STACK installiert und dort gesmoked (Konfiguration, Sicherung und
+            Wiederherstellung, Loeschen, gleichzeitige Schreibzugriffe), als Upgrade auf
+            die zuvor im Plugin-Verzeichnis veroeffentlichte Version eingespielt, und
+            PHPUnit und Behat liefen aus dem Archiv. Die Pruefsumme gehoert zu genau
+            dieser Datei.
+            Aenderungen: `docs/CHANGES.md` im Archiv.

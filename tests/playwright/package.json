@@ -6,10 +6,13 @@
   "license": "GPL-3.0-or-later",
   "scripts": {
     "test": "playwright test",
-    "install-browsers": "playwright install --with-deps chromium"
+    "install-browsers": "playwright install --with-deps chromium",
+    "nvda": "playwright test --project=nvda"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
-    "@playwright/test": "^1.63.0"
+    "@playwright/test": "^1.63.0",
+    "@guidepup/playwright": "0.19.1",
+    "@guidepup/guidepup": "0.33.0"
   }
 }

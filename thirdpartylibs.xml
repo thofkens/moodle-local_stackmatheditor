@@ -26,10 +26,10 @@
     <library>
         <location>thirdparty/mathquill</location>
         <name>MathQuill</name>
-        <version>0.10.1-sme72</version>
+        <version>0.10.1-sme.6</version>
         <license>MPL-2.0</license>
         <licenseversion>2.0</licenseversion>
-        <repository>https://github.com/mathquill/mathquill</repository>
+        <repository>https://github.com/ralferlebach/mathquill</repository>
         <customised>true</customised>
     </library>
 </libraries>

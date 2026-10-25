@@ -1,0 +1,73 @@
+{
+    "about": "Manual sign-off and accepted residual risks of one build. Checked by .github/check-signoff.py: the main CI checks the format, release-artefact.yml refuses a stable tag while an item is open. Status: open | done (the manual check was made, the result is in the issue) | accepted (the residual risk in docs/RESIDUAL-RISKS.md is accepted). done and accepted need date (YYYY-MM-DD) and by.",
+    "release": "1.3.0",
+    "build": 2026100800,
+    "items": [
+        {
+            "id": "nvda-judgement",
+            "issue": 69,
+            "risk": "R1",
+            "what": "A person has read the NVDA transcripts of the release candidate (docs/MANUAL-ACCEPTANCE.md, section 1)",
+            "allowed": ["done", "accepted"],
+            "status": "open",
+            "date": "",
+            "by": "",
+            "note": ""
+        },
+        {
+            "id": "plugins-directory-upload",
+            "issue": 69,
+            "risk": "R2",
+            "what": "The upload to the Moodle plugins directory is made by hand, outside the gate; the SHA-256 is compared after the upload",
+            "allowed": ["accepted"],
+            "status": "open",
+            "date": "",
+            "by": "",
+            "note": ""
+        },
+        {
+            "id": "android-devices",
+            "issue": 72,
+            "risk": "R3",
+            "what": "Android Opera, Firefox Klar and a keyboard other than Gboard tried on a device (docs/MANUAL-ACCEPTANCE.md, section 2)",
+            "allowed": ["done", "accepted"],
+            "status": "open",
+            "date": "",
+            "by": "",
+            "note": ""
+        },
+        {
+            "id": "dependency-revisions",
+            "issue": 70,
+            "risk": "R4",
+            "what": "STACK is installed from its moving branches in CI, not pinned",
+            "allowed": ["accepted"],
+            "status": "accepted",
+            "date": "2026-09-27",
+            "by": "Ralf Erlebach",
+            "note": "docs/RELEASE-CHECKLIST.md, section 7"
+        },
+        {
+            "id": "scope-invariant",
+            "issue": 87,
+            "risk": "R5",
+            "what": "One configuration per scope is enforced by lock and transaction, not by a unique index (docs/DATA-INTEGRITY.md)",
+            "allowed": ["accepted"],
+            "status": "open",
+            "date": "",
+            "by": "",
+            "note": ""
+        },
+        {
+            "id": "release-name",
+            "issue": null,
+            "risk": "R6",
+            "what": "Builds 2026100700 and 2026100800 both carry the release name 1.3.0",
+            "allowed": ["accepted"],
+            "status": "accepted",
+            "date": "2026-10-08",
+            "by": "Ralf Erlebach",
+            "note": "Release name stays 1.3.0, build 2026100800"
+        }
+    ]
+}

@@ -9,10 +9,13 @@
 # file exists on the repository's DEFAULT branch (main). The branch to test is
 # then chosen in the dialog ("Use workflow from"), e.g. development.
 #
-# Suites: smoke.spec.js (site, settings page, AMD build), settings.spec.js (level x setting
-# matrix: admin / quiz / question / inheritance x on-off / toolbar groups / implicit
-# multiplication, verified in the student attempt with screenshots) and performance.spec.js
-# (ten STACK editors on one page, exactly once, also after reloading).
+# Suites: every *.spec.js in tests/playwright except the NVDA one (see its README).
+#
+# Support matrix: by default both ends of the supported range run, Moodle 4.5 and Moodle 5.3, as
+# two jobs of one run - the release evidence requires both, by name. 5.3 runs with
+# SME_NO_OPTIONAL_SKIPS=1: there the dark colour mode exists, so its tests must run, and a skip
+# fails the job. A single branch can still be chosen for a quick check; such a run does not
+# count as release evidence.
 #
 # Artefacts: videos, traces and screenshots are recorded for EVERY test and
 # uploaded in both outcomes - green documents the journey, red can be
@@ -25,8 +28,8 @@ on:
   workflow_dispatch:
     inputs:
       moodle_branch:
-        description: 'Moodle branch of the test site'
-        default: 'MOODLE_405_STABLE'
+        description: 'Moodle branch of the test site: "all" (4.5 and 5.3, needed for the release evidence) or one branch'
+        default: 'all'
         required: false
 
 concurrency:
@@ -39,12 +42,18 @@ defaults:
 
 jobs:
   playwright:
-    name: "Playwright smoke / ${{ inputs.moodle_branch || 'MOODLE_405_STABLE' }}"
+    name: "Playwright / ${{ matrix.branch }}"
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: ${{ fromJSON((inputs.moodle_branch == '' || inputs.moodle_branch == 'all') && '["MOODLE_405_STABLE","MOODLE_503_STABLE"]' || format('["{0}"]', inputs.moodle_branch)) }}
+    # A green run takes about ten minutes; a red one retries every failure with video and trace.
+    timeout-minutes: 35
     services:
       postgres:
-        image: postgres:16
+        # 17: Moodle 5.3 requires it (the moodle_branch input can name 5.3), 4.5 accepts it.
+        image: postgres:17
         env:
           POSTGRES_USER: moodle
           POSTGRES_PASSWORD: moodle
@@ -55,7 +64,9 @@ jobs:
           --health-cmd="pg_isready" --health-interval=10s
           --health-timeout=5s --health-retries=5
     env:
-      MOODLE_BRANCH: ${{ inputs.moodle_branch || 'MOODLE_405_STABLE' }}
+      MOODLE_BRANCH: ${{ matrix.branch }}
+      # Where the dark colour mode exists (5.3 and later), its tests have to run.
+      SME_NO_OPTIONAL_SKIPS: ${{ matrix.branch == 'MOODLE_503_STABLE' && '1' || '0' }}
       MOODLE_WWWROOT: http://127.0.0.1:8000
       MOODLE_ADMIN_PASS: 'Admin!23'
     steps:
@@ -78,14 +89,14 @@ jobs:
       # STACK's install.php talks to Maxima while the site is installed.
       - name: Install Maxima and gnuplot (STACK CAS)
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq maxima gnuplot-nox
+          bash plugin/.github/install-maxima.sh
       - name: Build and install the test site (Moodle + STACK + plugin)
         run: bash plugin/.github/build-test-site.sh
       - name: Preflight and seed - plugin installed, course, users, quizzes
         run: |
           web=moodle; [ -d moodle/public ] && web=moodle/public
-          php "$web/local/stackmatheditor/tests/playwright/seed.php" > /tmp/sme-seed.env
+          php "$web/local/stackmatheditor/tests/playwright/seed.php" > /tmp/sme-seed.env \
+            || { echo "Seed failed. Its output:"; cat /tmp/sme-seed.env; exit 1; }
           sed -n "s/^export \([A-Z_][A-Z0-9_]*\)='\(.*\)'$/\1=\2/p" /tmp/sme-seed.env >> "$GITHUB_ENV"
           cat /tmp/sme-seed.env
       - name: Install Playwright and Chromium
@@ -98,12 +109,25 @@ jobs:
         env:
           SME_ADMIN_USER: admin
           SME_ADMIN_PASS: ${{ env.MOODLE_ADMIN_PASS }}
+          # The seed promises every fixture: a missing one fails instead of skipping (#89).
+          SME_STRICT_FIXTURES: '1'
         run: |
           # The web server is started inside THIS step (see serve-test-site.sh).
           . plugin/.github/serve-test-site.sh
           web=moodle; [ -d moodle/public ] && web=moodle/public
           cd "$web/local/stackmatheditor/tests/playwright"
           npm test
+      # The run page shows this without a sign-in: totals, and every test that did not simply
+      # pass, with its first error. It is also the gate that what should have run did run: no
+      # spec without tests, no unexpected skip, no fixme (#89).
+      - name: Summarise and check the run is complete
+        if: ${{ always() }}
+        env:
+          SME_STRICT_FIXTURES: '1'
+        run: |
+          web=moodle; [ -d moodle/public ] && web=moodle/public
+          cd "$web/local/stackmatheditor/tests/playwright"
+          node run-summary.js "Playwright ${{ matrix.branch }}" >> "$GITHUB_STEP_SUMMARY"
       - name: Collect report, videos and server log
         if: ${{ always() }}
         run: |
@@ -123,9 +147,13 @@ jobs:
         run: tail -100 /tmp/moodle-server.log || true
       - name: Upload report with videos
         if: ${{ always() }}
+        # A failed artifact upload must not fail a job whose checks passed: the finalize call
+        # has answered 403 on an otherwise green run (2026-09-14). The logs are a convenience,
+        # not a gate.
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-${{ job.status }}-report-with-videos
+          name: playwright-${{ matrix.branch }}-${{ job.status }}-report-with-videos
           path: ${{ runner.temp }}/playwright-artefacts
           retention-days: 14
           if-no-files-found: warn

@@ -25,7 +25,7 @@
  * Usage (from plugin root):
  *   php tools/fix_phpdoc.php [--dry-run] [<plugin-dir>]
  *
- * @package    local_coursectrl
+ * @package    local_stackmatheditor
  * @copyright  2026 Ralf Erlebach
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */

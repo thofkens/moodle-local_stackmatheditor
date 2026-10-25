@@ -108,4 +108,41 @@ final class language_strings_test extends \advanced_testcase {
         $this->assertSame([], array_values(array_diff($en, $de)), 'Keys missing in German');
         $this->assertSame([], array_values(array_diff($de, $en)), 'Keys only in German');
     }
+
+    /**
+     * Every string key the AMD modules read from the injected strings is injected (#92).
+     *
+     * The modules have no English fallback any more; a key the server does not send would show
+     * as "[[key]]". This keeps the two sides in step.
+     *
+     * @return void
+     */
+    public function test_js_string_contract(): void {
+        global $CFG;
+        $src = $CFG->dirroot . '/local/stackmatheditor/amd/src/';
+        $used = [];
+        foreach (glob($src . '*.js') as $file) {
+            $source = file_get_contents($file);
+            preg_match_all("/text\\(strings, '([a-z_]+)'\\)/", $source, $calls);
+            preg_match_all('/strings\\.([a-z]+_[a-z_]+)/', $source, $props);
+            $used = array_merge($used, $calls[1], $props[1]);
+        }
+        $used = array_values(array_unique($used));
+        sort($used);
+        $this->assertContains('toggle_editor', $used, 'the scan finds the toggle strings');
+        $this->assertContains('resize_confirm', $used, 'the scan finds the resize confirmation');
+
+        $injected = array_keys(definitions::get_js_strings());
+        $this->assertSame([], array_values(array_diff($used, $injected)), 'read in JS but not injected');
+
+        // The popup's markers name real strings, and the popup gets every key it has.
+        $popup = file_get_contents($src . 'structured_popup.js');
+        preg_match_all('/(\\w+): \'\\[\\[(popup_[a-z_]+)\\]\\]\'/', $popup, $markers, PREG_SET_ORDER);
+        $this->assertNotEmpty($markers);
+        $strings = definitions::get_popup_strings();
+        foreach ($markers as [, $key, $identifier]) {
+            $this->assertArrayHasKey($key, $strings, "popup key {$key}");
+            $this->assertSame(get_string($identifier, 'local_stackmatheditor'), $strings[$key], $identifier);
+        }
+    }
 }

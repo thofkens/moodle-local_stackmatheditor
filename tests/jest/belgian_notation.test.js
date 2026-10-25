@@ -32,14 +32,14 @@ describe('Belgian notation', () => {
         ['Bg\\sin\\left(5t\\right)', 'bgsin(5t)'],
         ['Bg\\ \\sin\\left(5t\\right)', 'bgsin(5t)'],
         ['BG\\cos\\left(x\\right)', 'bgcos(x)'],
-        ['\\cos^3\\left(3x\\right)', 'cos(3x)^(3)'],
-        ['\\sin^{2}\\left(\\frac{x}{2}\\right)', 'sin((x)/(2))^(2)'],
-        ['bg\\sin^2\\left(4t\\right)', 'bgsin(4t)^(2)'],
+        ['\\cos^3\\left(3x\\right)', 'cos(3x)^3'],
+        ['\\sin^{2}\\left(\\frac{x}{2}\\right)', 'sin((x)/(2))^2'],
+        ['bg\\sin^2\\left(4t\\right)', 'bgsin(4t)^2'],
         ['\\sin^{-1}\\left(x\\right)', 'sin^(-1)(x)'],
         ['\\frac{4\\sqrt{1-5^{2x}}}{\\ln\\left(50\\right)}', '(4sqrt(1-5^(2x)))/(log(50))'],
         ['\\frac{\\frac{1}{2}}{3}', '((1)/(2))/(3)'],
         ['\\operatorname{Bgsin}\\left(x\\right)', 'bgsin(x)'],
-        ['\\operatorname{Bgsin}^2\\left(4t\\right)', 'bgsin(4t)^(2)'],
+        ['\\operatorname{Bgsin}^2\\left(4t\\right)', 'bgsin(4t)^2'],
         ['\\frac{\\operatorname{Bgcos}\\left(3x\\right)}{2}', '(bgcos(3x))/(2)'],
     ])('%s -> %s', (latex, maxima) => {
         expect(tex2max.convert(latex, {variableMode: 'stack'})).toBe(maxima);

@@ -61,52 +61,40 @@ if (!$isquiz && !$isadaptivequiz) {
 
 $course = get_course($cm->course);
 
-// Load the activity record.
+// Authentication and authorisation FIRST: nothing question-specific happens before the login and
+// capability gates, so an anonymous request cannot tell existing from missing or STACK from
+// non-STACK questions, and runs no question-bank queries.
+$context = \context_module::instance($cmid);
+require_login($course, false, $cm);
+
+// A write capability of the module, the same one the navigation link requires.
+require_capability(\local_stackmatheditor\quiz_helper::configure_capability($modname), $context);
+
+// Load the activity record (not needed for the login gate).
 $activity = $DB->get_record($modname, ['id' => $cm->instance], '*', MUST_EXIST);
 
 // Determine operating mode.
 // mod_adaptivequiz always uses quiz-mode (no per-question configuration).
-$quizmode = $isadaptivequiz || ($qbeid <= 0 && $questionid <= 0);
+$quizmode = !\local_stackmatheditor\context_resolver::supports_question_configuration($modname)
+    || ($qbeid <= 0 && $questionid <= 0);
 
-// Question resolution (mod_quiz question-mode only).
+// Question resolution (mod_quiz question-mode only). Managing the quiz given by cmid is
+// permission for the questions of that quiz, not for any question on the site: the entry has to
+// be one the quiz uses, and the user has to be allowed to view the question where it lives. Both
+// are checked before anything is shown, evaluated or saved (protection against IDOR).
 $questionrecord = null;
 if (!$quizmode) {
-    if ($qbeid <= 0 && $questionid > 0) {
-        $qbeid = config_manager::resolve_qbeid($questionid);
-    }
-    if (!$qbeid) {
-        throw new \moodle_exception('cannotresolveqbeid', 'local_stackmatheditor');
-    }
-
-    $questionsql = "
-        SELECT q.id, q.name, q.qtype, qv.version
-          FROM {question} q
-          JOIN {question_versions} qv ON qv.questionid = q.id
-         WHERE qv.questionbankentryid = :qbeid
-      ORDER BY qv.version DESC";
-    $questionversions = $DB->get_records_sql($questionsql, ['qbeid' => $qbeid], 0, 1);
-    $questionrecord   = $questionversions ? reset($questionversions) : null;
-
-    if (!$questionrecord) {
-        throw new \moodle_exception('cannotresolveqbeid', 'local_stackmatheditor');
-    }
-    if ($questionrecord->qtype !== 'stack') {
-        throw new \moodle_exception('notstackquestion', 'local_stackmatheditor');
-    }
+    $questionrecord = \local_stackmatheditor\quiz_helper::require_configurable_question(
+        (int) $activity->id,
+        (int) $qbeid,
+        (int) $questionid
+    );
+    $qbeid      = (int) $questionrecord->qbeid;
     $questionid = (int) $questionrecord->id;
 }
 
-// Context and permissions.
-$context = \context_module::instance($cmid);
-require_login($course, false, $cm);
-
-// Mod_adaptivequiz does not define a :manage capability; :viewreport is
-// granted to editingteacher and manager and is the closest equivalent.
-$capname = $isadaptivequiz ? 'mod/adaptivequiz:viewreport' : 'mod/quiz:manage';
-require_capability($capname, $context);
-
 // Return URL: the calling page passed by every configuration link; only a direct call without
-// (or with an unusable) returnurl falls back to the activity's view page (#47).
+// (or with an unusable) returnurl falls back to the activity's view page.
 $returnurl = \local_stackmatheditor\quiz_helper::resolve_return_url($returnurl, $cmid, $modname);
 
 // Page setup.
@@ -182,6 +170,9 @@ if (!$quizmode && $questionrecord) {
 
         $questionpreviewhtml = $quba->render_question($slot, $options);
     } catch (\Throwable $e) {
+        // Preview boundary: the question type renders the preview and may fail in ways of its
+        // own; the form is still usable without it. A defect is reported by caught().
+        \local_stackmatheditor\quiz_helper::caught($e, 'configure question preview');
         $questionpreviewhtml = '';
     }
 }
@@ -203,6 +194,12 @@ if ($quizmode) {
     $config = config_manager::get_config($cmid, $qbeid, $questionid);
 }
 
+// What this level has stored itself. $config is what applies here, inherited values included;
+// deciding what to store needs the level's own values only.
+$own = $quizmode
+    ? (config_manager::get_own_config($cmid) ?? [])
+    : (config_manager::get_own_config($cmid, (int) $qbeid) ?? []);
+
 // Build selected group keys.
 $selectedkeys = [];
 foreach (array_keys($groups) as $key) {
@@ -211,8 +208,15 @@ foreach (array_keys($groups) as $key) {
     }
 }
 
-$currentvarmode = $config['_variableMode']
-    ?? config_manager::get_instance_variable_mode();
+// What this level inherits when it has no activation of its own: the quiz value for a
+// question, the instance default for a quiz.
+$inheritedenabled = ($instancemode === 1 || $instancemode === 3);
+if (!$quizmode && ($instancemode === 2 || $instancemode === 3)) {
+    $parentdefault = config_manager::get_quiz_default($cmid);
+    if ($parentdefault !== null && isset($parentdefault['_enabled'])) {
+        $inheritedenabled = (bool) $parentdefault['_enabled'];
+    }
+}
 
 // Determine initial enabled state.
 if ($instancemode === 0) {
@@ -247,13 +251,43 @@ $mform = new configure_form($pageurl->out(false), [
     'previewhtml'    => $questionpreviewhtml,
     'returnurl'      => $returnurl,
     'instancemode'   => $instancemode,
+    'dependencies'   => \local_stackmatheditor\dependency_resolver::get_group_status($questionid),
+    'stacksemantics' => \local_stackmatheditor\stack_inputs::get_semantics_summary(
+        $questionid,
+        (int) $course->id,
+        $PAGE->url->out(false)
+    ),
 ]);
 
-// Set current values.
+// Set current values. Implicit multiplication is not an editor setting: STACK owns that
+// semantics, the editor only shows it.
+// The student switch: the stored value of this level, else what the level above allows.
+if (isset($config['_allowStudentToggle'])) {
+    $currentstudenttoggle = (bool) $config['_allowStudentToggle'];
+} else {
+    $currentstudenttoggle = config_manager::get_instance_student_toggle();
+    if (!$quizmode) {
+        $parentconfig = config_manager::get_quiz_default($cmid);
+        if ($parentconfig !== null && isset($parentconfig['_allowStudentToggle'])) {
+            $currentstudenttoggle = (bool) $parentconfig['_allowStudentToggle'];
+        }
+    }
+}
+
+// What the level above allows, for deciding whether a submitted value says anything.
+$inheritedtoggle = config_manager::get_instance_student_toggle();
+if (!$quizmode) {
+    $quizown = config_manager::get_own_config($cmid) ?? [];
+    if (isset($quizown['_allowStudentToggle'])) {
+        $inheritedtoggle = $inheritedtoggle && (bool) $quizown['_allowStudentToggle'];
+    }
+}
+
 $formdata = [
-    'groups'       => $selectedkeys,
-    'variablemode' => $currentvarmode,
-    'enabled'      => (int) $currentenabled,
+    'maxdimension'       => $own['_maxStructuredDimension'] ?? '',
+    'groups'             => $selectedkeys,
+    'enabled'            => (int) $currentenabled,
+    'allowstudenttoggle' => (int) ((bool) $currentstudenttoggle),
 ];
 $mform->set_data($formdata);
 
@@ -269,15 +303,55 @@ if ($mform->is_cancelled()) {
         $elements[$key] = in_array($key, $selectedgroups);
     }
 
-    $varmode = $data->variablemode ?? definitions::IMPLICIT_STACK;
-    $varmode = definitions::normalise_implicit_mode((string) $varmode);
-    $elements['_variableMode'] = $varmode;
+    // The editor hands STACK what was typed and lets STACK's own "insert stars" setting decide.
+    // STACK is the sole source of truth for implicit multiplication, so nothing about it is stored.
+    $elements['_variableMode'] = definitions::IMPLICIT_STACK;
 
-    // Store enabled flag when instance mode allows overrides.
-    if ($instancemode === 2 || $instancemode === 3) {
-        $elements['_enabled'] = isset($data->enabled)
-            ? (bool) $data->enabled
-            : ($instancemode === 3);
+    // The student switch is stored like the activation itself, and it is only ever stored
+    // as true when the editor is on here: a level that has no editor grants no permission.
+    // The chooser limit. An empty field means "inherit", and a level whose structured
+    // groups are off keeps whatever it had: a temporary deactivation is not a reason to forget.
+    if (property_exists($data, 'maxdimension')) {
+        $cleaned = definitions::clean_max_dimension($data->maxdimension);
+        if ($cleaned === null) {
+            unset($elements['_maxStructuredDimension']);
+        } else {
+            $elements['_maxStructuredDimension'] = $cleaned;
+        }
+    } else if (isset($own['_maxStructuredDimension'])) {
+        $elements['_maxStructuredDimension'] = (int) $own['_maxStructuredDimension'];
+    }
+
+
+
+    // Store activation only when it differs from inheritance; otherwise saving unrelated settings
+    // (such as the toolbar groups) would create an unintended override.
+    $submittedenabled = property_exists($data, 'enabled') ? (bool) $data->enabled : null;
+    $storeenabled = config_manager::activation_to_store(
+        $instancemode,
+        isset($own['_enabled']) ? (bool) $own['_enabled'] : null,
+        $inheritedenabled,
+        $submittedenabled
+    );
+    if ($storeenabled === null) {
+        unset($elements['_enabled']);
+    } else {
+        $elements['_enabled'] = $storeenabled;
+    }
+
+    // Student switch: an absent field - disabled while the editor is off - keeps the
+    // author's stored choice instead of overwriting it with "no".
+    $editornow = $storeenabled ?? $inheritedenabled;
+    $storetoggle = config_manager::student_toggle_to_store(
+        isset($own['_allowStudentToggle']) ? (bool) $own['_allowStudentToggle'] : null,
+        $editornow,
+        property_exists($data, 'allowstudenttoggle') ? (bool) $data->allowstudenttoggle : null,
+        $inheritedtoggle
+    );
+    if ($storetoggle === null) {
+        unset($elements['_allowStudentToggle']);
+    } else {
+        $elements['_allowStudentToggle'] = (int) $storetoggle;
     }
 
     if ($quizmode) {
@@ -295,6 +369,9 @@ if ($mform->is_cancelled()) {
 }
 
 // Output.
+// The size field follows the group selection while the form is open.
+$PAGE->requires->js_call_amd('local_stackmatheditor/configure_form', 'init');
+
 echo $OUTPUT->header();
 
 if ($quizmode) {

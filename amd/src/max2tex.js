@@ -206,7 +206,7 @@ define(['local_stackmatheditor/operator_map'], function(OperatorMap) {
                 break;
             }
             // Part of a longer identifier (asqrt(, x_1sqrt() - not this function.
-            // A preceding pure number is a coefficient: 2sqrt(x) is 2*sqrt(x) (#39).
+            // A preceding pure number is a coefficient: 2sqrt(x) is 2*sqrt(x).
             if (idx > 0 && /[a-zA-Z0-9_]/.test(s[idx - 1])
                     && !/(^|[^a-zA-Z0-9_])[0-9]+$/.test(s.substring(0, idx))) {
                 result += s.substring(i, idx + 1);
@@ -265,9 +265,9 @@ define(['local_stackmatheditor/operator_map'], function(OperatorMap) {
         // First: _(content) -> _{content}.
         s = fixpoint(s, /_\(([^()]*?)\)/, '_{$1}');
         // Then: _x (single char not already in braces) -> _{x}.
-        // Group the whole subscript, not just its first character (#59): U_max is one
-        // identifier and has to be drawn as U_{max}. Grouping only the first character produced
-        // U_{m}ax, which means something else entirely and does not survive a roundtrip.
+        // Group the whole subscript, not just its first character: U_max is one identifier and
+        // has to be drawn as U_{max}. Grouping only the first character would produce U_{m}ax,
+        // which means something else entirely and does not survive a roundtrip.
         s = s.replace(/_([a-zA-Z0-9]+)(?!\{)(?!\()/g, '_{$1}');
         return s;
     }
@@ -394,7 +394,7 @@ define(['local_stackmatheditor/operator_map'], function(OperatorMap) {
     }
 
     /**
-     * Render STACK's set functions as infix operator markers (#35).
+     * Render STACK's set functions as infix operator markers.
      *
      * union(A,B) → A ∪ B, intersection → ∩, setdifference → ∖, elementp → ∈,
      * not elementp → ∉, subsetp → ⊆, and the proper-subset form
@@ -466,7 +466,7 @@ define(['local_stackmatheditor/operator_map'], function(OperatorMap) {
     }
 
     /**
-     * Replace integral calls by placeholders holding their LaTeX (#44).
+     * Replace integral calls by placeholders holding their LaTeX.
      *
      * Reads the evaluated form integrate(…) / int(…) and the noun forms 'int(…), 'integrate(…)
      * and nounint(…) - with 2 arguments (indefinite) or 4 (definite). Other arities are left
@@ -522,10 +522,278 @@ define(['local_stackmatheditor/operator_map'], function(OperatorMap) {
     }
 
     /**
-     * LaTeX of a derivative diff(expr, x[, n][, y, m …]) with the canonical ∂ (#46).
+     * Environments used when Maxima structures are written back as LaTeX.
      *
-     * diff(…) does not record whether d or ∂ was written, so ∂ is used throughout (Ralf's
-     * decision); the order of the variable/order pairs is kept as written.
+     * Vectors keep round brackets, matrices square ones, mirroring the toolbar. |...| is a
+     * determinant and ‖...‖ a norm, so those two are not a matter of taste.
+     *
+     * @type {Object}
+     */
+    var MATRIX_ENVIRONMENTS = {
+        vector: 'pmatrix',
+        matrix: 'bmatrix',
+        determinant: 'vmatrix',
+        norm: 'Vmatrix'
+    };
+
+    /**
+     * Wrap rows in a LaTeX matrix environment.
+     *
+     * @param {string[]} rows Rows, cells already joined with &.
+     * @param {string} environment Environment name.
+     * @returns {string} LaTeX.
+     */
+    function matrixEnvironment(rows, environment) {
+        return '\\begin{' + environment + '}' +
+            rows.join('\\\\') +
+            '\\end{' + environment + '}';
+    }
+
+    /**
+     * Split a Maxima matrix(...) call into its rows.
+     *
+     * @param {string} s Argument list of matrix(...), without the surrounding call.
+     * @returns {?string[][]} Rows of raw cells, or null if the argument list is not a matrix.
+     */
+    function matrixRows(s) {
+        var args = splitArguments(s);
+        var rows = [];
+        var columns = -1;
+        var row;
+        var cells;
+        var i;
+
+        if (!args.length) {
+            return null;
+        }
+
+        for (i = 0; i < args.length; i++) {
+            row = args[i].trim();
+            if (row.charAt(0) !== '[' || row.charAt(row.length - 1) !== ']') {
+                return null;
+            }
+            cells = splitArguments(row.substring(1, row.length - 1));
+            if (columns === -1) {
+                columns = cells.length;
+            } else if (cells.length !== columns) {
+                return null;
+            }
+            rows.push(cells);
+        }
+
+        return rows;
+    }
+
+    /**
+     * LaTeX for a Maxima matrix(...) call.
+     *
+     * @param {string[][]} rows Raw cells.
+     * @param {Object} options Conversion options.
+     * @param {?string} environment Forced environment, or null for the shape-dependent default.
+     * @returns {string} LaTeX.
+     */
+    function matrixLatex(rows, options, environment) {
+        var isvector = rows.length === 1 || rows[0].length === 1;
+        var rendered = rows.map(function(cells) {
+            return cells.map(function(cell) {
+                return convert(cell, options);
+            }).join('&');
+        });
+
+        return matrixEnvironment(
+            rendered,
+            environment || (isvector ? MATRIX_ENVIRONMENTS.vector : MATRIX_ENVIRONMENTS.matrix)
+        );
+    }
+
+    /**
+     * Replace matrix(), determinant() and the configured norm function by LaTeX environments.
+     *
+     * Extracted into the placeholder store like integrals: the row and column separators must
+     * not be touched by the later passes, and each cell is converted on its own.
+     *
+     * A matrix whose arguments are not all rows of equal length (Maxima allows matrix(a, b) with
+     * list-valued variables) is left alone rather than rendered as something it is not. The same
+     * holds for a determinant or norm of anything that is not a literal matrix: those become
+     * ‖x‖ resp. |x| around the converted argument.
+     *
+     * With the vector format set to "list", a Maxima list is drawn as a row vector, because in
+     * that mode a list is how the editor writes vectors. A list has no orientation, so a column
+     * vector comes back as a row.
+     *
+     * @param {string} s       Maxima expression.
+     * @param {Object} options Conversion options.
+     * @param {Array}  store   Placeholder store.
+     * @returns {string} String with structures replaced by placeholders.
+     */
+    function extractMatrixCalls(s, options, store) {
+        var defs = options.defs || {};
+        var normfunction = defs.normFunction || 'norm';
+        var names = ['matrix', 'determinant', 'det', normfunction];
+        var re = new RegExp(
+            '(^|[^A-Za-z0-9_%])(\'?)(' + names.join('|') + ')\\('
+        );
+        var out = '';
+        var rest = s;
+        var m;
+        var name;
+        var start;
+        var open;
+        var close;
+        var body;
+        var rows;
+        var inner;
+        var tex;
+
+        while ((m = rest.match(re)) !== null) {
+            start = m.index + m[1].length;
+            name = m[3];
+            open = start + m[2].length + name.length;
+            close = findCloseParen(rest, open);
+            if (close === -1) {
+                break;
+            }
+
+            body = rest.substring(open + 1, close);
+            tex = null;
+
+            if (name === 'matrix') {
+                rows = matrixRows(body);
+                if (rows) {
+                    tex = matrixLatex(rows, options, null);
+                }
+            } else {
+                inner = body.trim();
+                rows = null;
+                if (inner.indexOf('matrix(') === 0 && findCloseParen(inner, 6) === inner.length - 1) {
+                    rows = matrixRows(inner.substring(7, inner.length - 1));
+                }
+                if (name === 'determinant' || name === 'det') {
+                    tex = rows
+                        ? matrixLatex(rows, options, MATRIX_ENVIRONMENTS.determinant)
+                        : matrixEnvironment(
+                            [convert(body, options)],
+                            MATRIX_ENVIRONMENTS.determinant
+                        );
+                } else {
+                    // ‖(x, y)‖: a vector keeps its own brackets inside the norm, a matrix does
+                    // not — the norm bars replace its brackets.
+                    tex = rows && !(rows.length === 1 || rows[0].length === 1)
+                        ? matrixLatex(rows, options, MATRIX_ENVIRONMENTS.norm)
+                        : matrixEnvironment(
+                            [convert(body, options)],
+                            MATRIX_ENVIRONMENTS.norm
+                        );
+                }
+            }
+
+            if (tex === null) {
+                out += rest.substring(0, close + 1);
+                rest = rest.substring(close + 1);
+                continue;
+            }
+
+            out += rest.substring(0, start) + '\uE060' + store.length + '\uE061';
+            store.push(tex);
+            rest = rest.substring(close + 1);
+        }
+
+        return out + rest;
+    }
+
+    /**
+     * In list mode, draw a Maxima list as a row vector.
+     *
+     * Only used when the vector format is "list": there a list is how the editor writes vectors,
+     * so a pre-filled answer has to come back as one. Orientation is not part of a list, so a
+     * column vector returns as a row — the trade-off the setting makes explicit.
+     *
+     * Indexing (a[1]) and nested lists are left alone.
+     *
+     * @param {string} s       Maxima expression.
+     * @param {Object} options Conversion options.
+     * @param {Array}  store   Placeholder store.
+     * @returns {string} String with lists replaced by placeholders.
+     */
+    function extractListVectors(s, options, store) {
+        var out = '';
+        var i = 0;
+        var depth;
+        var startidx;
+        var previous;
+        var body;
+        var cells;
+        var ok;
+        var j;
+
+        while (i < s.length) {
+            if (s.charAt(i) !== '[') {
+                out += s.charAt(i);
+                i++;
+                continue;
+            }
+
+            previous = out.replace(/\s+$/, '').slice(-1);
+            if (previous && /[A-Za-z0-9_\])]/.test(previous)) {
+                // An index, not a list.
+                out += s.charAt(i);
+                i++;
+                continue;
+            }
+
+            depth = 0;
+            startidx = i;
+            for (; i < s.length; i++) {
+                if (s.charAt(i) === '[') {
+                    depth++;
+                } else if (s.charAt(i) === ']') {
+                    depth--;
+                    if (depth === 0) {
+                        break;
+                    }
+                }
+            }
+
+            if (depth !== 0) {
+                out += s.substring(startidx);
+                return out;
+            }
+
+            body = s.substring(startidx + 1, i);
+            cells = splitArguments(body);
+            ok = cells.length > 0 && body.indexOf('[') === -1;
+            for (j = 0; j < cells.length && ok; j++) {
+                if (cells[j].trim() === '') {
+                    ok = false;
+                }
+            }
+
+            if (!ok) {
+                out += s.substring(startidx, i + 1);
+                i++;
+                continue;
+            }
+
+            out += '\uE060' + store.length + '\uE061';
+            store.push(
+                matrixEnvironment(
+                    [cells.map(function(cell) {
+                        return convert(cell, options);
+                    }).join('&')],
+                    MATRIX_ENVIRONMENTS.vector
+                )
+            );
+            i++;
+        }
+
+        return out;
+    }
+
+    /**
+     * LaTeX of a derivative diff(expr, x[, n][, y, m …]) with the canonical ∂.
+     *
+     * diff(…) does not record whether d or ∂ was written, so ∂ is used throughout (a
+     * deliberate design decision); the order of the variable/order pairs is kept as written.
      *
      * @param {string[]} args Arguments of diff (already split).
      * @param {Object} options Conversion options.
@@ -569,7 +837,7 @@ define(['local_stackmatheditor/operator_map'], function(OperatorMap) {
     }
 
     /**
-     * Replace derivative calls diff / 'diff / noundiff by placeholders holding their LaTeX (#46).
+     * Replace derivative calls diff / 'diff / noundiff by placeholders holding their LaTeX.
      *
      * @param {string} s Maxima expression.
      * @param {Object} options Conversion options.
@@ -606,7 +874,7 @@ define(['local_stackmatheditor/operator_map'], function(OperatorMap) {
     }
 
     /**
-     * Collapse "(A implies B) and (B implies A)" back into A ⇔ B (#35).
+     * Collapse "(A implies B) and (B implies A)" back into A ⇔ B.
      *
      * @param {string} s Maxima expression.
      * @returns {string} Expression with the ⇔ marker, or unchanged.
@@ -637,7 +905,7 @@ define(['local_stackmatheditor/operator_map'], function(OperatorMap) {
 
     /**
      * Merge two alternatives that differ only in coupled signs into one
-     * expression carrying ± (\u00b1) and ∓ (\u2213) (#30).
+     * expression carrying ± (\u00b1) and ∓ (\u2213).
      *
      * Walks both strings in parallel. Equal characters are copied; "+" against
      * "-" becomes ±, "-" against "+" becomes ∓. A sign present in only one
@@ -695,7 +963,7 @@ define(['local_stackmatheditor/operator_map'], function(OperatorMap) {
     }
 
     /**
-     * Collapse exactly two sign alternatives back into one ± expression (#30).
+     * Collapse exactly two sign alternatives back into one ± expression.
      *
      * Reads "(A) nounor (B)" only. A logical "or" is never collapsed: it is a
      * statement a student made with the ∨ button, and turning it into ± would
@@ -873,6 +1141,131 @@ define(['local_stackmatheditor/operator_map'], function(OperatorMap) {
     }
 
     /**
+     * Draw STACK's geometry functions in school notation again.
+     *
+     * Only the constructs whose STACK form is unambiguous:
+     *
+     *     Distance(A,B)  ->  d(A,B)
+     *     Angle(A,B,C)   ->  \angle ABC
+     *
+     * A list is only drawn as a point when the site asks for it: [2,3] is a point in a geometry
+     * question and an ordinary list everywhere else, and the editor cannot tell from the string.
+     *
+     * @param {string} s Maxima expression.
+     * @param {Object} options Conversion options.
+     * @returns {string} Expression in school notation.
+     */
+    function renderGeometry(s, options) {
+        var defs = (options || {}).defs || {};
+        var separator = defs.coordinateSeparator || '|';
+
+        s = s.replace(
+            /(^|[^A-Za-z0-9_%])Angle\(\s*([^(),]+?)\s*,\s*([^(),]+?)\s*,\s*([^(),]+?)\s*\)/g,
+            '$1\\angle $2$3$4'
+        );
+        s = s.replace(
+            /(^|[^A-Za-z0-9_%])Distance\(\s*([^(),]+?)\s*,\s*([^(),]+?)\s*\)/g,
+            '$1d\\left($2,$3\\right)'
+        );
+
+        if (defs.pointNotation) {
+            s = s.replace(
+                /(^|[^A-Za-z0-9_%\]])\[([^[\]]+)\]/g,
+                function(match, before, body) {
+                    var parts = body.split(',').map(function(part) {
+                        return part.trim();
+                    });
+
+                    if (parts.length < 2 || parts.some(function(part) {
+                        return part === '' || part.indexOf('[') !== -1;
+                    })) {
+                        return match;
+                    }
+
+                    return before + '\\left(' + parts.join(separator) + '\\right)';
+                }
+            );
+        }
+
+        return s;
+    }
+
+    /**
+     * LaTeX label of each differential operator, by semantic id.
+     *
+     * @type {Object}
+     */
+    var DIFFERENTIAL_OPERATOR_LATEX = {
+        gradient: '\\operatorname{grad}',
+        divergence: '\\operatorname{div}',
+        curl: '\\operatorname{rot}',
+        laplacian: '\\Delta'
+    };
+
+    /**
+     * Draw the configured differential operators with their label.
+     *
+     * Runs on the finished LaTeX, where a function call is already \\left( ... \\right). Only
+     * names the site has configured are recognised; anything else stays the function call it
+     * is. The CAS name and the label are separate: a site whose curl is called "curl" still
+     * shows "rot" to a German-speaking student.
+     *
+     * @param {string} s Maxima expression.
+     * @param {Object} options Conversion options.
+     * @returns {string} Expression with operator names replaced by their LaTeX label.
+     */
+    function renderDifferentialOperators(s, options) {
+        var operators = ((options || {}).defs || {}).diffOps || {};
+
+        Object.keys(DIFFERENTIAL_OPERATOR_LATEX).forEach(function(semantic) {
+            var name = operators[semantic];
+            if (!name) {
+                return;
+            }
+            s = s.replace(
+                new RegExp('(^|[^A-Za-z0-9_%])' + name + '\\s*(?=(?:\\\\left)?\\()', 'g'),
+                '$1' + DIFFERENTIAL_OPERATOR_LATEX[semantic]
+            );
+        });
+
+        return s;
+    }
+
+    /**
+     * Marker for a space that separates two factors in the CAS string.
+     *
+     * @type {string}
+     */
+    var EXPLICIT_SPACE = '\uE003';
+
+    /**
+     * Protect the spaces STACK considers meaningful.
+     *
+     * Only a space between two operands counts: "a b" is a boundary, the space in "1 + 2" is
+     * formatting. Runs after the keyword passes, so the spaces around "and", "in" or "union"
+     * have already done their work. The marker travels through the remaining passes and becomes
+     * a LaTeX control space at the end.
+     *
+     * @param {string} s Maxima expression.
+     * @returns {string} Expression with protected spaces.
+     */
+    function protectExplicitSpaces(s) {
+        return s.replace(
+            /([A-Za-z0-9_%)\]]) +(?=[A-Za-z0-9_%([])/g,
+            function(match, left, offset) {
+                // The keyword passes have already produced LaTeX such as "x \in A"; the space
+                // after a control word belongs to the command, not to the user.
+                var before = s.substring(0, offset + left.length);
+                if (/\\[A-Za-z]+$/.test(before)) {
+                    return match;
+                }
+
+                return left + EXPLICIT_SPACE;
+            }
+        );
+    }
+
+    /**
      * Main Maxima -> LaTeX conversion.
      *
      * @param {string} maxima Maxima expression.
@@ -946,12 +1339,77 @@ define(['local_stackmatheditor/operator_map'], function(OperatorMap) {
     }
 
     /**
+     * Convert binomial(n,k) to \\binom{n}{k}, arguments and nesting included.
+     *
+     * @param {string} s Maxima expression.
+     * @returns {string} String with binomial() replaced.
+     */
+    function processBinomial(s) {
+        var guard = 20;
+        var changed = true;
+
+        while (changed && guard > 0) {
+            changed = false;
+            guard--;
+
+            var at = s.indexOf('binomial(');
+            while (at !== -1) {
+                if (at > 0 && /[a-zA-Z0-9_]/.test(s.charAt(at - 1))) {
+                    at = s.indexOf('binomial(', at + 1);
+                    continue;
+                }
+
+                var open = at + 'binomial'.length;
+                var close = findCloseParen(s, open);
+                if (close === -1) {
+                    break;
+                }
+
+                var args = splitArguments(s.substring(open + 1, close));
+                if (args.length !== 2) {
+                    at = s.indexOf('binomial(', at + 1);
+                    continue;
+                }
+
+                s = s.substring(0, at)
+                    + '\\binom{' + args[0].trim() + '}{' + args[1].trim() + '}'
+                    + s.substring(close + 1);
+                changed = true;
+                break;
+            }
+        }
+
+        return s;
+    }
+
+    /**
      * Replace abs(expr) with \left|expr\right|.
      *
      * @param {string} s Maxima expression.
      * @returns {string} String with abs() replaced.
      */
     function processAbsFunction(s) {
+        var guard = 20;
+        var before;
+
+        // Nested absolute values need more than one pass: a call is replaced and its argument is
+        // left as it is, inner abs( and all.
+        do {
+            before = s;
+            s = processAbsFunctionOnce(s);
+            guard--;
+        } while (s !== before && guard > 0);
+
+        return s;
+    }
+
+    /**
+     * One pass of abs(expr) -> \\left|expr \\right|.
+     *
+     * @param {string} s Maxima expression.
+     * @returns {string} String with the outermost abs() calls replaced.
+     */
+    function processAbsFunctionOnce(s) {
         var absSearch = 'abs(';
         var absResult = '';
         var absI = 0;
@@ -1010,15 +1468,28 @@ define(['local_stackmatheditor/operator_map'], function(OperatorMap) {
             ['cosh', '\\cosh', 'paren'],
             ['tanh', '\\tanh', 'paren'],
             ['exp', '\\exp', 'paren'],
-            ['log', '\\ln', 'paren'],
-            ['abs', '\\left|', 'abs']
+            ['log', '\\ln', 'paren']
+            // Deliberately without abs: processAbsFunction() owns it, and the generic wrapper
+            // here would open a bar it never closes.
         ];
-        for (fi = 0; fi < stdFuncs.length; fi++) {
-            sf = stdFuncs[fi];
-            if (s.indexOf(sf[0] + '(') >= 0) {
-                s = processFunc(s, sf[0], sf[1], sf[2]);
+        // Repeat the whole list until nothing changes. processFunc() replaces a call and leaves
+        // its argument as it is, so after a single pass an inner sqrt( would sit untouched inside
+        // the LaTeX the outer one produced, and the student would see a root sign wrapped around
+        // the word "sqrt". One more pass finds it, and the loop ends when a pass changes nothing.
+        var guard = 20;
+        var before;
+
+        do {
+            before = s;
+            for (fi = 0; fi < stdFuncs.length; fi++) {
+                sf = stdFuncs[fi];
+                if (s.indexOf(sf[0] + '(') >= 0) {
+                    s = processFunc(s, sf[0], sf[1], sf[2]);
+                }
             }
-        }
+            guard--;
+        } while (s !== before && guard > 0);
+
         return s;
     }
 
@@ -1032,14 +1503,25 @@ define(['local_stackmatheditor/operator_map'], function(OperatorMap) {
      */
     function processFunctionDefsList(s, funcDefs) {
         var k, def, wrapType;
-        for (k = 0; k < funcDefs.length; k++) {
-            def = funcDefs[k];
-            if (!def || typeof def !== 'object' || !def.maxima_name || !def.latex_cmd) {
-                continue;
+        var guard = 20;
+        var before;
+
+        // Repeated until nothing changes, exactly as for the standard functions: a
+        // configured function nested in itself is the same problem, and whether a function is
+        // hardcoded or configured must not decide whether recursion works.
+        do {
+            before = s;
+            for (k = 0; k < funcDefs.length; k++) {
+                def = funcDefs[k];
+                if (!def || typeof def !== 'object' || !def.maxima_name || !def.latex_cmd) {
+                    continue;
+                }
+                wrapType = def.type === 'brace' ? 'brace' : 'paren';
+                s = processFunc(s, def.maxima_name, def.latex_cmd, wrapType);
             }
-            wrapType = def.type === 'brace' ? 'brace' : 'paren';
-            s = processFunc(s, def.maxima_name, def.latex_cmd, wrapType);
-        }
+            guard--;
+        } while (s !== before && guard > 0);
+
         return s;
     }
 
@@ -1108,12 +1590,16 @@ define(['local_stackmatheditor/operator_map'], function(OperatorMap) {
 
         s = extractIntegralCalls(s, opts, integrals);
         s = extractDerivativeCalls(s, opts, integrals);
+        s = extractMatrixCalls(s, opts, integrals);
+        if ((opts.defs || {}).vectorFormat === 'list') {
+            s = extractListVectors(s, opts, integrals);
+        }
 
         // Maxima braces are set literals; LaTeX braces are grouping. Protect the
         // literals now and write them as \\left\\{ ... \\right\\} at the end.
         s = s.replace(/\{/g, '\uE020').replace(/\}/g, '\uE021');
 
-        // Set functions and ⇔ become operator markers before any keyword pass (#35).
+        // Set functions and ⇔ become operator markers before any keyword pass.
         s = convertRelationSystemToCases(renderSetFunctions(collapseIff(s)));
 
         if (!s) {
@@ -1127,6 +1613,10 @@ define(['local_stackmatheditor/operator_map'], function(OperatorMap) {
         s = processSetTheoryKeywords(s);
         s = processLogicKeywords(s);
 
+        // Only now: before this point a space also separates keywords ("x in A", "p and q"),
+        // and protecting those would keep the keyword passes from matching.
+        s = protectExplicitSpaces(s);
+
         // %-constants -> LaTeX (BEFORE Greek letter replacement).
         s = processConstantsList(s, defs.constants || []);
 
@@ -1137,9 +1627,9 @@ define(['local_stackmatheditor/operator_map'], function(OperatorMap) {
         if (s.indexOf('%pi') >= 0) {
             s = s.replace(/%pi/g, '\\pi ');
         }
-        // Bare "pi" → \pi (after logic keyword processing, "pi" no longer matches "implies" etc.).
+        // Bare "pi" → \pi (after logic keyword processing, so "pi" cannot match inside "implies" etc.).
         // Not after a backslash: the constants pass may already have produced "\pi", and a second
-        // replacement turned it into "\\pi", a LaTeX line break followed by the letters pi.
+        // replacement would turn it into "\\pi", a LaTeX line break followed by the letters pi.
         s = s.replace(/(?<!\\)\bpi\b/g, '\\pi ');
         if (s.indexOf('inf') >= 0) {
             s = s.replace(/\bminf\b/g, '-\\infty ');
@@ -1165,11 +1655,10 @@ define(['local_stackmatheditor/operator_map'], function(OperatorMap) {
         // Functions -> LaTeX.
         s = processFunctionDefsList(s, defs.functions || []);
 
-        // Binomial: binomial(n,k) -> \binom{n}{k}.
-        s = s.replace(
-            /\bbinomial\(([^,()]+),([^,()]+)\)/g,
-            '\\binom{$1}{$2}'
-        );
+        // Binomial: binomial(n,k) -> \\binom{n}{k}. The arguments are read with a bracket
+        // counter and the pass repeats, so binomial(f(x),k) and a binomial inside another one
+        // both survive.
+        s = processBinomial(s);
 
         // Upper Greek fallback (if not handled by defs).
         s = processUpperGreekList(s);
@@ -1231,7 +1720,15 @@ define(['local_stackmatheditor/operator_map'], function(OperatorMap) {
             }
         });
 
+        // Late, on the finished LaTeX: the braces of \operatorname{...} must not be mistaken
+        // for a Maxima set literal, and the operand brackets are \left( ... \right) by now.
+        s = renderDifferentialOperators(s, options);
+        s = renderGeometry(s, options);
+
         s = s.replace(/\s+/g, ' ').trim();
+        // A space the user meant becomes MathQuill's control space, so the editor shows the
+        // boundary again after a pre-fill.
+        s = s.replace(new RegExp(EXPLICIT_SPACE, 'g'), '\\ ');
         return s;
     }
 

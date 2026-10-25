@@ -45,24 +45,6 @@ if ($hassiteconfig) {
     ));
 
     // Variable mode default.
-    $settings->add(new admin_setting_configselect(
-        'local_stackmatheditor/variablemode',
-        get_string('setting_variablemode', 'local_stackmatheditor'),
-        get_string('setting_variablemode_desc', 'local_stackmatheditor'),
-        \local_stackmatheditor\definitions::IMPLICIT_STACK,
-        [
-            \local_stackmatheditor\definitions::IMPLICIT_EXPLICIT_SINGLE =>
-                get_string('implicitmode_explicit_single', 'local_stackmatheditor'),
-            \local_stackmatheditor\definitions::IMPLICIT_EXPLICIT_MULTI =>
-                get_string('implicitmode_explicit_multi', 'local_stackmatheditor'),
-            \local_stackmatheditor\definitions::IMPLICIT_SPACE_SINGLE =>
-                get_string('implicitmode_space_single', 'local_stackmatheditor'),
-            \local_stackmatheditor\definitions::IMPLICIT_SPACE_MULTI =>
-                get_string('implicitmode_space_multi', 'local_stackmatheditor'),
-            \local_stackmatheditor\definitions::IMPLICIT_STACK =>
-                get_string('implicitmode_stack', 'local_stackmatheditor'),
-        ]
-    ));
 
 
     // Use percent-pi notation (%pi) instead of plain pi.
@@ -70,6 +52,86 @@ if ($hassiteconfig) {
         'local_stackmatheditor/usepercentpi',
         get_string('setting_usepercentpi', 'local_stackmatheditor'),
         get_string('setting_usepercentpi_desc', 'local_stackmatheditor'),
+        0
+    ));
+
+    // How a one-row or one-column matrix is written to Maxima.
+    $settings->add(new admin_setting_configselect(
+        'local_stackmatheditor/vectorformat',
+        get_string('setting_vectorformat', 'local_stackmatheditor'),
+        get_string('setting_vectorformat_desc', 'local_stackmatheditor'),
+        'matrix',
+        [
+            'matrix' => get_string('setting_vectorformat_matrix', 'local_stackmatheditor'),
+            'list'   => get_string('setting_vectorformat_list', 'local_stackmatheditor'),
+        ]
+    ));
+
+    // Maxima function a norm is written to.
+    $settings->add(new admin_setting_configtext(
+        'local_stackmatheditor/normfunction',
+        get_string('setting_normfunction', 'local_stackmatheditor'),
+        get_string('setting_normfunction_desc', 'local_stackmatheditor'),
+        'norm',
+        PARAM_ALPHANUMEXT
+    ));
+
+    // Largest structure the matrix and vector choosers offer. Only has an effect where
+    // one of those groups is active; the value is kept either way.
+    $settings->add(new admin_setting_configtext(
+        'local_stackmatheditor/maxstructureddimension',
+        get_string('setting_maxstructureddimension', 'local_stackmatheditor'),
+        get_string('setting_maxstructureddimension_desc', 'local_stackmatheditor'),
+        \local_stackmatheditor\definitions::DEFAULT_STRUCTURED_DIMENSION,
+        PARAM_INT
+    ));
+
+    // May students switch the editor off while answering? Subordinate to the activation
+    // above: with no editor there is no switch, whatever this says.
+    $settings->add(new admin_setting_configcheckbox(
+        'local_stackmatheditor/allowstudenttoggle',
+        get_string('setting_allowstudenttoggle', 'local_stackmatheditor'),
+        get_string('setting_allowstudenttoggle_desc', 'local_stackmatheditor'),
+        1
+    ));
+
+    // CAS function names for the differential operators. Empty means the operator is not
+    // offered: Maxima's gradient, divergence and curl live in the vect package and depend on the
+    // coordinate system, so the name has to come from whoever knows this installation.
+    foreach (['gradient', 'divergence', 'curl', 'laplacian'] as $smediffop) {
+        $settings->add(new admin_setting_configtext(
+            'local_stackmatheditor/diffop' . $smediffop,
+            get_string('setting_diffop_' . $smediffop, 'local_stackmatheditor'),
+            get_string('setting_diffop_' . $smediffop . '_desc', 'local_stackmatheditor'),
+            '',
+            PARAM_ALPHANUMEXT
+        ));
+    }
+
+    // Page types of further question-engine consumers. The editor already runs on the
+    // pages it knows; this is for a module it does not.
+    $settings->add(new admin_setting_configtextarea(
+        'local_stackmatheditor/extrapagetypes',
+        get_string('setting_extrapagetypes', 'local_stackmatheditor'),
+        get_string('setting_extrapagetypes_desc', 'local_stackmatheditor'),
+        '',
+        PARAM_RAW
+    ));
+
+    // Coordinate separator for points. Display only.
+    $settings->add(new admin_setting_configselect(
+        'local_stackmatheditor/coordinateseparator',
+        get_string('setting_coordinateseparator', 'local_stackmatheditor'),
+        get_string('setting_coordinateseparator_desc', 'local_stackmatheditor'),
+        '|',
+        ['|' => 'P(2 | 3)', ';' => 'P(2; 3)', ',' => 'P(2, 3)']
+    ));
+
+    // Whether a stored list is drawn as a point again.
+    $settings->add(new admin_setting_configcheckbox(
+        'local_stackmatheditor/pointnotation',
+        get_string('setting_pointnotation', 'local_stackmatheditor'),
+        get_string('setting_pointnotation_desc', 'local_stackmatheditor'),
         0
     ));
 

@@ -1,0 +1,938 @@
+[
+    {
+        "group": "basic_operators",
+        "display": "+",
+        "kind": "write",
+        "template": "+",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "basic_operators",
+        "display": "−",
+        "kind": "write",
+        "template": "-",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "basic_operators",
+        "display": "·",
+        "kind": "cmd",
+        "template": "\\cdot",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "basic_operators",
+        "display": "÷",
+        "kind": "cmd",
+        "template": "\\div",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "basic_operators",
+        "display": "",
+        "kind": "write",
+        "template": "\\frac{}{}",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "basic_operators",
+        "display": "%",
+        "kind": "write",
+        "template": "\\%",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "power_root",
+        "display": "xⁿ",
+        "kind": "write",
+        "template": "^{}",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "power_root",
+        "display": "√",
+        "kind": "write",
+        "template": "\\sqrt{}",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "power_root",
+        "display": "ⁿ√",
+        "kind": "write",
+        "template": "\\nthroot{}{}",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "exponential_log",
+        "display": "exp",
+        "kind": "write",
+        "template": "\\exp\\left(\\right)",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "exponential_log",
+        "display": "log",
+        "kind": "write",
+        "template": "\\log\\left(\\right)",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "exponential_log",
+        "display": "ln",
+        "kind": "write",
+        "template": "\\ln\\left(\\right)",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "comparators",
+        "display": "=",
+        "kind": "write",
+        "template": "=",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "comparators",
+        "display": "≠",
+        "kind": "cmd",
+        "template": "\\neq",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "comparators",
+        "display": "≈",
+        "kind": "cmd",
+        "template": "\\approx",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "comparators",
+        "display": "<",
+        "kind": "write",
+        "template": "<",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "comparators",
+        "display": ">",
+        "kind": "write",
+        "template": ">",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "comparators",
+        "display": "≤",
+        "kind": "cmd",
+        "template": "\\leq",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "comparators",
+        "display": "≥",
+        "kind": "cmd",
+        "template": "\\geq",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "absolute",
+        "display": "|x|",
+        "kind": "write",
+        "template": "\\left|\\right|",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "absolute",
+        "display": "±",
+        "kind": "cmd",
+        "template": "\\pm",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "absolute",
+        "display": "∓",
+        "kind": "cmd",
+        "template": "\\mp",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "set_theory",
+        "display": "∈",
+        "kind": "cmd",
+        "template": "\\in",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "set_theory",
+        "display": "∉",
+        "kind": "cmd",
+        "template": "\\notin",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "set_theory",
+        "display": "∪",
+        "kind": "cmd",
+        "template": "\\cup",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "set_theory",
+        "display": "∩",
+        "kind": "cmd",
+        "template": "\\cap",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "set_theory",
+        "display": "∖",
+        "kind": "cmd",
+        "template": "\\setminus",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "set_theory",
+        "display": "⊆",
+        "kind": "cmd",
+        "template": "\\subseteq",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "set_theory",
+        "display": "⊇",
+        "kind": "cmd",
+        "template": "\\supseteq",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "set_theory",
+        "display": "⊂",
+        "kind": "cmd",
+        "template": "\\subset",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "set_theory",
+        "display": "⊃",
+        "kind": "cmd",
+        "template": "\\supset",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "logic",
+        "display": "¬",
+        "kind": "cmd",
+        "template": "\\neg",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "logic",
+        "display": "∧",
+        "kind": "cmd",
+        "template": "\\land",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "logic",
+        "display": "∨",
+        "kind": "cmd",
+        "template": "\\lor",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "logic",
+        "display": "⇒",
+        "kind": "cmd",
+        "template": "\\Rightarrow",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "logic",
+        "display": "⇐",
+        "kind": "cmd",
+        "template": "\\Leftarrow",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "logic",
+        "display": "⇔",
+        "kind": "cmd",
+        "template": "\\Leftrightarrow",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "differential_operators",
+        "display": "∂/∂x",
+        "kind": "write",
+        "template": "\\frac{\\partial}{\\partial x}\\left(\\right)",
+        "semantic": "",
+        "left": 1
+    },
+    {
+        "group": "differential_operators",
+        "display": "∂ⁿ/∂xⁿ",
+        "kind": "write",
+        "template": "\\frac{\\partial^{2}}{\\partial x^{2}}\\left(\\right)",
+        "semantic": "",
+        "left": 1
+    },
+    {
+        "group": "differential_operators",
+        "display": "∂²/∂x∂y",
+        "kind": "write",
+        "template": "\\frac{\\partial^{2}}{\\partial x\\partial y}\\left(\\right)",
+        "semantic": "",
+        "left": 1
+    },
+    {
+        "group": "integral_operators",
+        "display": "∫",
+        "kind": "write",
+        "template": "\\int_{}^{}\\left(\\right)\\mathrm{d}x",
+        "semantic": "",
+        "left": 5
+    },
+    {
+        "group": "brackets",
+        "display": "( )",
+        "kind": "write",
+        "template": "\\left(\\right)",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "brackets",
+        "display": "[ ]",
+        "kind": "write",
+        "template": "\\left[\\right]",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "brackets",
+        "display": "{ }",
+        "kind": "write",
+        "template": "\\left\\{\\right\\}",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "constants_math",
+        "display": "π",
+        "kind": "cmd",
+        "template": "\\pi",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "constants_math",
+        "display": "∞",
+        "kind": "cmd",
+        "template": "\\infty",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "constants_math",
+        "display": "e",
+        "kind": "write",
+        "template": "\\mathrm{e}",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "constants_math",
+        "display": "i",
+        "kind": "write",
+        "template": "\\mathrm{i}",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "geometry",
+        "display": "P(x|y)",
+        "kind": "write",
+        "template": "\\left(|\\right)",
+        "semantic": "point2d",
+        "left": 3
+    },
+    {
+        "group": "geometry",
+        "display": "P(x|y|z)",
+        "kind": "write",
+        "template": "\\left(||\\right)",
+        "semantic": "point3d",
+        "left": 5
+    },
+    {
+        "group": "geometry",
+        "display": "d(A,B)",
+        "kind": "write",
+        "template": "d\\left(,\\right)",
+        "semantic": "distance",
+        "left": 3
+    },
+    {
+        "group": "geometry",
+        "display": "∠ABC",
+        "kind": "write",
+        "template": "\\angle ",
+        "semantic": "angle",
+        "left": 0
+    },
+    {
+        "group": "geometry",
+        "display": "|AB|",
+        "kind": "write",
+        "template": "\\left|\\overline{}\\right|",
+        "semantic": "segmentlength",
+        "left": 1
+    },
+    {
+        "group": "geometry",
+        "display": "AB̅",
+        "kind": "write",
+        "template": "\\overline{}",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "trigonometry",
+        "display": "sin",
+        "kind": "write",
+        "template": "\\sin\\left(\\right)",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "trigonometry",
+        "display": "cos",
+        "kind": "write",
+        "template": "\\cos\\left(\\right)",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "trigonometry",
+        "display": "tan",
+        "kind": "write",
+        "template": "\\tan\\left(\\right)",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "trigonometry",
+        "display": "asin",
+        "kind": "write",
+        "template": "\\arcsin\\left(\\right)",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "trigonometry",
+        "display": "acos",
+        "kind": "write",
+        "template": "\\arccos\\left(\\right)",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "trigonometry",
+        "display": "atan",
+        "kind": "write",
+        "template": "\\arctan\\left(\\right)",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "vector_products",
+        "display": "×",
+        "kind": "cmd",
+        "template": "\\times",
+        "semantic": "crossproduct",
+        "left": 0
+    },
+    {
+        "group": "vector_operators",
+        "display": "v⃗",
+        "kind": "write",
+        "template": "\\vec{}",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "vector_operators",
+        "display": "·",
+        "kind": "cmd",
+        "template": "\\cdot",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "vector_operators",
+        "display": "‖v‖",
+        "kind": "write",
+        "template": "\\left\\|\\right\\|",
+        "semantic": "",
+        "left": 1
+    },
+    {
+        "group": "matrix_operators",
+        "display": "[⋮] ▾",
+        "kind": "popup",
+        "template": "matrix",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "matrix_operators",
+        "display": "(a⋮b) ▾",
+        "kind": "popup",
+        "template": "vector",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "matrix_operators",
+        "display": "det",
+        "kind": "write",
+        "template": "\\det\\left(\\right)",
+        "semantic": "",
+        "left": 1
+    },
+    {
+        "group": "matrix_operators",
+        "display": "ident",
+        "kind": "write",
+        "template": "\\operatorname{ident}\\left(\\right)",
+        "semantic": "",
+        "left": 1
+    },
+    {
+        "group": "matrix_operators",
+        "display": "Aᵀ",
+        "kind": "write",
+        "template": "\\operatorname{transpose}\\left(\\right)",
+        "semantic": "",
+        "left": 1
+    },
+    {
+        "group": "greek_lower",
+        "display": "α",
+        "kind": "cmd",
+        "template": "\\alpha",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_lower",
+        "display": "β",
+        "kind": "cmd",
+        "template": "\\beta",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_lower",
+        "display": "γ",
+        "kind": "cmd",
+        "template": "\\gamma",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_lower",
+        "display": "δ",
+        "kind": "cmd",
+        "template": "\\delta",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_lower",
+        "display": "ε",
+        "kind": "cmd",
+        "template": "\\epsilon",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_lower",
+        "display": "ζ",
+        "kind": "cmd",
+        "template": "\\zeta",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_lower",
+        "display": "η",
+        "kind": "cmd",
+        "template": "\\eta",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_lower",
+        "display": "θ",
+        "kind": "cmd",
+        "template": "\\theta",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_lower",
+        "display": "ι",
+        "kind": "cmd",
+        "template": "\\iota",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_lower",
+        "display": "κ",
+        "kind": "cmd",
+        "template": "\\kappa",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_lower",
+        "display": "λ",
+        "kind": "cmd",
+        "template": "\\lambda",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_lower",
+        "display": "μ",
+        "kind": "cmd",
+        "template": "\\mu",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_lower",
+        "display": "ν",
+        "kind": "cmd",
+        "template": "\\nu",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_lower",
+        "display": "ξ",
+        "kind": "cmd",
+        "template": "\\xi",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_lower",
+        "display": "ο",
+        "kind": "write",
+        "template": "o",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_lower",
+        "display": "π",
+        "kind": "cmd",
+        "template": "\\pi",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_lower",
+        "display": "ρ",
+        "kind": "cmd",
+        "template": "\\rho",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_lower",
+        "display": "σ",
+        "kind": "cmd",
+        "template": "\\sigma",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_lower",
+        "display": "τ",
+        "kind": "cmd",
+        "template": "\\tau",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_lower",
+        "display": "υ",
+        "kind": "cmd",
+        "template": "\\upsilon",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_lower",
+        "display": "φ",
+        "kind": "cmd",
+        "template": "\\phi",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_lower",
+        "display": "χ",
+        "kind": "cmd",
+        "template": "\\chi",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_lower",
+        "display": "ψ",
+        "kind": "cmd",
+        "template": "\\psi",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_lower",
+        "display": "ω",
+        "kind": "cmd",
+        "template": "\\omega",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_upper",
+        "display": "Α",
+        "kind": "write",
+        "template": "A",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_upper",
+        "display": "Β",
+        "kind": "write",
+        "template": "B",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_upper",
+        "display": "Γ",
+        "kind": "cmd",
+        "template": "\\Gamma",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_upper",
+        "display": "Δ",
+        "kind": "cmd",
+        "template": "\\Delta",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_upper",
+        "display": "Ε",
+        "kind": "write",
+        "template": "E",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_upper",
+        "display": "Ζ",
+        "kind": "write",
+        "template": "Z",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_upper",
+        "display": "Η",
+        "kind": "write",
+        "template": "H",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_upper",
+        "display": "Θ",
+        "kind": "cmd",
+        "template": "\\Theta",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_upper",
+        "display": "Ι",
+        "kind": "write",
+        "template": "I",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_upper",
+        "display": "Κ",
+        "kind": "write",
+        "template": "K",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_upper",
+        "display": "Λ",
+        "kind": "cmd",
+        "template": "\\Lambda",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_upper",
+        "display": "Μ",
+        "kind": "write",
+        "template": "M",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_upper",
+        "display": "Ν",
+        "kind": "write",
+        "template": "N",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_upper",
+        "display": "Ξ",
+        "kind": "cmd",
+        "template": "\\Xi",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_upper",
+        "display": "Ο",
+        "kind": "write",
+        "template": "O",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_upper",
+        "display": "Π",
+        "kind": "cmd",
+        "template": "\\Pi",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_upper",
+        "display": "Ρ",
+        "kind": "write",
+        "template": "P",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_upper",
+        "display": "Σ",
+        "kind": "cmd",
+        "template": "\\Sigma",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_upper",
+        "display": "Τ",
+        "kind": "write",
+        "template": "T",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_upper",
+        "display": "Υ",
+        "kind": "cmd",
+        "template": "\\Upsilon",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_upper",
+        "display": "Φ",
+        "kind": "cmd",
+        "template": "\\Phi",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_upper",
+        "display": "Χ",
+        "kind": "write",
+        "template": "X",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_upper",
+        "display": "Ψ",
+        "kind": "cmd",
+        "template": "\\Psi",
+        "semantic": "",
+        "left": 0
+    },
+    {
+        "group": "greek_upper",
+        "display": "Ω",
+        "kind": "cmd",
+        "template": "\\Omega",
+        "semantic": "",
+        "left": 0
+    }
+]

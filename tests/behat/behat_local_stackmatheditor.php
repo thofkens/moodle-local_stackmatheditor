@@ -152,6 +152,80 @@ class behat_local_stackmatheditor extends behat_base {
     }
 
     /**
+     * Open the quiz-level configuration page for a given question case (#54).
+     *
+     * @Given I am on the STACK MathQuill quiz configuration page for :quizname with question :case
+     * @param string $quizname Quiz name.
+     * @param string $case     "stack" for the quiz's STACK question, anything else for a
+     *                         question bank entry id that does not exist.
+     */
+    public function i_am_on_quiz_config_page_with_question(string $quizname, string $case): void {
+        global $DB;
+
+        $quiz = $DB->get_record('quiz', ['name' => $quizname], '*', MUST_EXIST);
+        $cm = get_coursemodule_from_instance('quiz', $quiz->id, 0, false, MUST_EXIST);
+        $qbeid = 999999999;
+        if ($case === 'stack') {
+            $qbeid = (int) $DB->get_field_sql(
+                "SELECT qr.questionbankentryid
+                   FROM {quiz_slots} qs
+                   JOIN {question_references} qr ON qr.itemid = qs.id
+                        AND qr.component = 'mod_quiz' AND qr.questionarea = 'slot'
+                  WHERE qs.quizid = :quizid
+               ORDER BY qs.slot",
+                ['quizid' => $quiz->id],
+                IGNORE_MULTIPLE
+            );
+        }
+        $url = new \moodle_url(
+            '/local/stackmatheditor/configure.php',
+            ['cmid' => $cm->id, 'qbeid' => $qbeid]
+        );
+        $this->getSession()->visit($url->out(false));
+        if ($this->running_javascript()) {
+            $this->getSession()->wait(2000, "document.readyState === 'complete'");
+        }
+    }
+
+    /**
+     * Assert that the configuration page refuses a user without the capability (#54).
+     *
+     * Moodle renders a permission error as an exception page, and Behat's after-step hook fails
+     * any step that ends on one. The check therefore happens inside this step, which then leaves
+     * the error page again so the hook sees a clean page.
+     *
+     * @Then the STACK MathQuill quiz configuration page for :quizname with question :case is denied to me
+     * @param string $quizname Quiz name.
+     * @param string $case     "stack" for the quiz's STACK question, anything else for a
+     *                         question bank entry id that does not exist.
+     */
+    public function quiz_config_page_is_denied(string $quizname, string $case): void {
+        $this->i_am_on_quiz_config_page_with_question($quizname, $case);
+
+        $text = $this->getSession()->getPage()->getText();
+
+        if (strpos($text, 'do not currently have permissions') === false) {
+            throw new ExpectationException(
+                'Expected a permission error on the configuration page, got: ' . $text,
+                $this->getSession()
+            );
+        }
+
+        if (strpos($text, 'Cannot resolve the question') !== false) {
+            throw new ExpectationException(
+                'The question was resolved before the capability was checked.',
+                $this->getSession()
+            );
+        }
+
+        // Leave the exception page before the after-step hook inspects it.
+        $this->getSession()->visit((new \moodle_url('/'))->out(false));
+        if ($this->running_javascript()) {
+            $this->getSession()->wait(2000, "document.readyState === 'complete'");
+        }
+    }
+
+    /**
      * Assert that the browser shows the view or edit page of a quiz (#47).
      *
      * @Then I should be on the quiz :pagetype page of :quizname
@@ -413,6 +487,151 @@ JS;
                 $this->getSession()
             );
         }
+    }
+
+    /**
+     * Type on the keyboard into a MathQuill field (#58).
+     *
+     * The other typing step uses MathQuill's write() API, which does not go through the typing
+     * path - and that path is where "Umax" became "U max" in the first place. This one clicks
+     * the field and sends real key events, so the operator-name detection runs exactly as it
+     * does for a student.
+     *
+     * @When I press the keys :text into the MathQuill field for :inputname
+     * @param string $text Characters to type.
+     * @param string $inputname Name attribute of the corresponding hidden input.
+     */
+    public function i_press_keys_into_mathquill_field(
+        string $text,
+        string $inputname
+    ): void {
+        $safeinput = json_encode($inputname);
+        $js = <<<JS
+            (function() {
+                var n     = {$safeinput};
+                var input = document.querySelector('input[name="' + n + '"]')
+                         || document.querySelector('input[name\$="_' + n + '"]');
+                if (!input) { return 'no-input'; }
+                var wrap = input.previousElementSibling;
+                if (!wrap) { return 'no-wrap'; }
+                var field = wrap.querySelector('.mq-editable-field');
+                if (!field) { return 'no-field'; }
+                Array.from(document.querySelectorAll('.sme-behat-target')).forEach(
+                    function(el) { el.classList.remove('sme-behat-target'); }
+                );
+                field.classList.add('sme-behat-target');
+                return 'ok';
+            })()
+JS;
+        $result = $this->getSession()->evaluateScript($js);
+        if ($result !== 'ok') {
+            throw new ExpectationException(
+                "Could not find the MathQuill field '$inputname' (result: $result).",
+                $this->getSession()
+            );
+        }
+
+        $this->execute('behat_general::i_click_on', ['.sme-behat-target', 'css_element']);
+        $this->execute('behat_general::i_type', [$text]);
+    }
+
+    /**
+     * Let STACK validate what is currently in an input, and report what it said (#34).
+     *
+     * The button contract test in Jest proves a button produces a CAS-safe string. It cannot
+     * prove the CAS agrees, because it has no CAS. This step presses STACK's own validation and
+     * checks that the answer came back interpreted rather than rejected - which is the only
+     * evidence that a visible button means what it promises.
+     *
+     * @Then STACK should accept the answer in :inputname
+     * @param string $inputname Name attribute of the original input.
+     */
+    public function stack_should_accept_the_answer(string $inputname): void {
+        $session = $this->getSession();
+
+        // STACK validates on blur and on the check button; blurring is enough and does not
+        // submit the attempt.
+        $safe = json_encode($inputname);
+        $session->executeScript(<<<JS
+            (function() {
+                var n     = {$safe};
+                var input = document.querySelector('input[name="' + n + '"]')
+                         || document.querySelector('input[name\$="_' + n + '"]');
+                if (input) {
+                    input.dispatchEvent(new Event('change', {bubbles: true}));
+                    input.blur();
+                }
+            })()
+JS);
+        $session->wait(4000);
+
+        $validation = $session->evaluateScript(<<<JS
+            (function() {
+                var boxes = document.querySelectorAll('.stackinputfeedback, .stackinputerror');
+                var text  = '';
+                boxes.forEach(function(box) {
+                    text += ' ' + (box.textContent || '');
+                });
+                return text.trim();
+            })()
+JS);
+
+        // What STACK says when it cannot read an answer. Anything else - including silence, which
+        // means the answer needed no comment - counts as accepted.
+        $rejections = [
+            'Your answer is not',
+            'not a valid',
+            'Illegal',
+            'unknown function',
+            'missing',
+            'CAS failed',
+            'Unable to',
+        ];
+
+        foreach ($rejections as $rejection) {
+            if (stripos($validation, $rejection) !== false) {
+                throw new ExpectationException(
+                    "STACK refused the answer in '$inputname': $validation",
+                    $session
+                );
+            }
+        }
+    }
+
+    /**
+     * Write into the original STACK input the way an external script does (#77).
+     *
+     * STACK's JSXGraph bindings set the value and dispatch a change event that does not bubble,
+     * which is the part that used to be missed. This step reproduces that exactly - no jQuery,
+     * no bubbling, no focus change.
+     *
+     * @When the STACK input for :inputname is set to :value by an external script
+     * @param string $inputname Name attribute of the original input.
+     * @param string $value Value to write.
+     */
+    public function external_script_sets_stack_input(string $inputname, string $value): void {
+        $safeinput = json_encode($inputname);
+        $safevalue = json_encode($value);
+        $js = <<<JS
+            (function() {
+                var n     = {$safeinput};
+                var input = document.querySelector('input[name="' + n + '"]')
+                         || document.querySelector('input[name\$="_' + n + '"]');
+                if (!input) { return 'no-input'; }
+                input.value = {$safevalue};
+                input.dispatchEvent(new Event('change'));
+                return 'ok';
+            })()
+JS;
+        $result = $this->getSession()->evaluateScript($js);
+        if ($result !== 'ok') {
+            throw new ExpectationException(
+                "Could not find the STACK input '$inputname' (result: $result).",
+                $this->getSession()
+            );
+        }
+
+        $this->getSession()->wait(1000);
     }
 
     /**
@@ -1389,7 +1608,7 @@ JS;
                         continue;
                     }
                     // The plugin hides the original input off-screen
-                    // (position:absolute; left:-9999px) and clips it to ~1px,
+                    // (position:absolute, clipped to 1px),
                     // so MathQuill can still sync values to it.  Treat that as hidden.
                     var rect = el.getBoundingClientRect();
                     if ((rect.left + rect.width) < 1) {

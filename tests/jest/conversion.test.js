@@ -48,3 +48,20 @@ describe('max2tex', () => {
         expect(max2tex.convert(tex2max.convert('\\frac{1}{2}'))).toBe('\\frac{1}{2}');
     });
 });
+
+describe('superscripts written by current MathQuill', () => {
+    // MathQuill emits x^{2} where 0.10.1 emitted x^2. A single digit group or a single letter
+    // therefore loses the parentheses again; anything else keeps them, because x^ab would be
+    // split into x^a*b by implicit multiplication.
+    test.each([
+        ['p^{2}', 'p^2'],
+        ['x^{10}', 'x^10'],
+        ['e^{x}', 'e^x'],
+        ['x^{n+1}', 'x^(n+1)'],
+        ['x^{ab}', 'x^(ab)'],
+        ['x^{-1}', 'x^(-1)'],
+        ['\\sqrt{\\frac{p^{2}}{4-q}}', 'sqrt((p^2)/(4-q))']
+    ])('%s -> %s', (latex, maxima) => {
+        expect(tex2max.convert(latex)).toBe(maxima);
+    });
+});

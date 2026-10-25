@@ -142,7 +142,11 @@
         "abs",
         "sgn",
         "max",
-        "min"
+        "min",
+        "det",
+        "determinant",
+        "norm",
+        "transpose"
     ],
     "reservedWords": [
         "if",

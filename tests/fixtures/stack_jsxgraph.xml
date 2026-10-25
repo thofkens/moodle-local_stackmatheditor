@@ -1,0 +1,233 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Test fixture for local_stackmatheditor (#77).
+
+  A STACK question with four algebraic inputs bound to four JSXGraph sliders through
+  stack_jxg.bind_slider(). Moving a slider writes into the original STACK input and dispatches a
+  change event that does not bubble - which is exactly the path the editor has to hear.
+
+  Kept as close to the reported question as possible: it is the question the bug was found with,
+  and a simplified version would not prove the same thing. Contributed by Ralf Erlebach from a
+  course question by Malte Neugebauer.
+-->
+<quiz>
+<!-- question: 2268437  -->
+  <question type="stack">
+    <name>
+      <text>SME JSXGraph sliders (ans1..ans4)</text>
+    </name>
+    <questiontext format="html">
+      <text><![CDATA[<p><p style="display: visible;">Die allgemeine Form einer Exponentialfunktion lautet \(f(x) = \) {@f(x)@}<br>Die Parameter a,b,h und k beeinflussen den Graphen der Exponentialfunktion auf unterschiedliche Weise.</p>
+<p style="display: visible;">Gegeben ist die Funktion \(h(x) = \) {@h(x)@}</p>
+<p style="display: visible;">a) Zeichne die Graphen dieser Funktionen in ein Koordinatensystem.</p>
+<p style="display: visible;"><em>Du kannst dazu beide Eingabemöglichkeiten nutzen (Eingabefelder &amp; Slider)</em></p>
+<p style="display: visible;">\(a = \) [[input:ans1]] [[validation:ans1]]</p>
+<p style="display: visible;">\(b = \) [[input:ans2]] [[validation:ans2]]</p>
+<p style="display: visible;">\(h = \) [[input:ans3]] [[validation:ans3]]</p>
+<p style="display: visible;">\(k = \) [[input:ans4]] [[validation:ans4]]</p>
+<p>[[jsxgraph width = "360px" height = "360px" input-ref-ans1 = "inputans1" input-ref-ans2 = "inputans2" input-ref-ans3 = "inputans3" input-ref-ans4 = "inputans4"]] JXG.Options.axis.ticks.minorTicks = 0; var board = JXG.JSXGraph.initBoard(divid, { boundingbox: [-10, 10, 10, -10], axis: true, grid: true, showNavigation: true, showCopyright: false }); var a = board.create('slider', [[-9,8], [-5,8], [-4, 0.5, 4]], { name: 'a = ', visible: true, snapWidth: 0.5, point1: {fixed: false}, point2: {fixed: false}, baseline: {fixed: false, needsRegularUpdate: true} }); var b = board.create('slider', [[-9,6], [-5,6], [-4, 0.5, 4]], { name: 'b = ', visible: true, snapWidth: 0.5, point1: {fixed: false}, point2: {fixed: false}, baseline: {fixed: false, needsRegularUpdate: true} }); var h = board.create('slider', [[-9,4], [-5,4], [-4, 0.5, 4]], { name: 'h = ', visible: true, snapWidth: 0.5, point1: {fixed: false}, point2: {fixed: false}, baseline: {fixed: false, needsRegularUpdate: true} }); var k = board.create('slider', [[-9,2], [-5,2], [-4, 0.5, 4]], { name: 'k = ', visible: true, snapWidth: 0.5, point1: {fixed: false}, point2: {fixed: false}, baseline: {fixed: false, needsRegularUpdate: true} }); stack_jxg.bind_slider(inputans1, a); stack_jxg.bind_slider(inputans2, b); stack_jxg.bind_slider(inputans3, h); stack_jxg.bind_slider(inputans4, k); var f = function(x) {return a.Value()*Math.E**(b.Value()*(x-h.Value()))+k.Value(); }; var graph = board.create('functiongraph', [f]); [[/jsxgraph]]</p>
+<p>b) Beschreibe wie der Vorfaktor a und die Veränderung von h die Form der Graphen beeinflusst.<br>c) Was ändert sich, wenn bei \(h(x)\) plötzlich b negativ wird?<br>d) Überlege was passiert, wenn k nicht Null ist, wie in den Beispielen oben.</p></p>
+]]></text>
+    </questiontext>
+    <generalfeedback format="html">
+      <text></text>
+    </generalfeedback>
+    <defaultgrade>1</defaultgrade>
+    <penalty>0.1</penalty>
+    <hidden>0</hidden>
+    <idnumber></idnumber>
+    <stackversion>
+      <text>2023010400</text>
+    </stackversion>
+    <questionvariables>
+      <text><![CDATA[/*Funktion konvertiert Zahlen der Form 1.0, 2.0, 3.0 usw. zu 1, 2, 3*/
+konvertZahl(z):=block(
+    [newZ:0],
+    /*Wenn */
+    if floatnump(z) and floor(10 * (z - floor(z)))=0 then(
+        newZ:fix(z)
+        )
+    else(
+    newZ:z),
+return (newZ)
+);
+
+
+f(x):=a*%e^(b*(x-h))+k;
+
+faktor_list:delete(0, makelist(-4 + i/2, i, 0, 16)); /*Liste von -4 -> +4 */
+a_faktor:float(rand(faktor_list));
+a_faktor:konvertZahl(a_faktor);
+
+h_faktor:float(rand(faktor_list));
+h_faktor:konvertZahl(h_faktor);
+
+h(x):=a_faktor*%e^(x+h_faktor);]]></text>
+    </questionvariables>
+    <specificfeedback format="moodle_auto_format">
+      <text><![CDATA[<p>[[feedback:prt1]]</p>]]></text>
+    </specificfeedback>
+    <questionnote format="moodle_auto_format">
+      <text><![CDATA[<p>\(h(x) = \){@h(x)@}</p>]]></text>
+    </questionnote>
+    <questiondescription format="moodle_auto_format">
+      <text></text>
+    </questiondescription>
+    <questionsimplify>1</questionsimplify>
+    <assumepositive>0</assumepositive>
+    <assumereal>0</assumereal>
+    <prtcorrect format="html">
+      <text><![CDATA[<span style="font-size: 1.5em; color:green;"><i class="fa fa-check"></i></span> Richtige Antwort, gut gemacht!]]></text>
+    </prtcorrect>
+    <prtpartiallycorrect format="html">
+      <text><![CDATA[<span style="font-size: 1.5em; color:orange;"><i class="fa fa-adjust"></i></span> Die Antwort ist teilweise korrekt.]]></text>
+    </prtpartiallycorrect>
+    <prtincorrect format="html">
+      <text><![CDATA[<span style="font-size: 1.5em; color:red;"><i class="fa fa-times"></i></span> Falsche Antwort.]]></text>
+    </prtincorrect>
+    <decimals>.</decimals>
+    <scientificnotation>*10</scientificnotation>
+    <multiplicationsign>dot</multiplicationsign>
+    <sqrtsign>1</sqrtsign>
+    <complexno>i</complexno>
+    <inversetrig>cos-1</inversetrig>
+    <logicsymbol>lang</logicsymbol>
+    <matrixparens>[</matrixparens>
+    <isbroken>0</isbroken>
+    <variantsselectionseed></variantsselectionseed>
+    <input>
+      <name>ans1</name>
+      <type>algebraic</type>
+      <tans>a_faktor</tans>
+      <boxsize>3</boxsize>
+      <strictsyntax>1</strictsyntax>
+      <insertstars>0</insertstars>
+      <syntaxhint></syntaxhint>
+      <syntaxattribute>0</syntaxattribute>
+      <forbidwords></forbidwords>
+      <allowwords></allowwords>
+      <forbidfloat>0</forbidfloat>
+      <requirelowestterms>1</requirelowestterms>
+      <checkanswertype>0</checkanswertype>
+      <mustverify>0</mustverify>
+      <showvalidation>0</showvalidation>
+      <options></options>
+    </input>
+    <input>
+      <name>ans2</name>
+      <type>algebraic</type>
+      <tans>1</tans>
+      <boxsize>3</boxsize>
+      <strictsyntax>1</strictsyntax>
+      <insertstars>0</insertstars>
+      <syntaxhint></syntaxhint>
+      <syntaxattribute>0</syntaxattribute>
+      <forbidwords></forbidwords>
+      <allowwords></allowwords>
+      <forbidfloat>0</forbidfloat>
+      <requirelowestterms>1</requirelowestterms>
+      <checkanswertype>0</checkanswertype>
+      <mustverify>0</mustverify>
+      <showvalidation>0</showvalidation>
+      <options></options>
+    </input>
+    <input>
+      <name>ans3</name>
+      <type>algebraic</type>
+      <tans>h_faktor</tans>
+      <boxsize>3</boxsize>
+      <strictsyntax>1</strictsyntax>
+      <insertstars>0</insertstars>
+      <syntaxhint></syntaxhint>
+      <syntaxattribute>0</syntaxattribute>
+      <forbidwords></forbidwords>
+      <allowwords></allowwords>
+      <forbidfloat>0</forbidfloat>
+      <requirelowestterms>1</requirelowestterms>
+      <checkanswertype>0</checkanswertype>
+      <mustverify>0</mustverify>
+      <showvalidation>0</showvalidation>
+      <options></options>
+    </input>
+    <input>
+      <name>ans4</name>
+      <type>algebraic</type>
+      <tans>0</tans>
+      <boxsize>3</boxsize>
+      <strictsyntax>1</strictsyntax>
+      <insertstars>0</insertstars>
+      <syntaxhint></syntaxhint>
+      <syntaxattribute>0</syntaxattribute>
+      <forbidwords></forbidwords>
+      <allowwords></allowwords>
+      <forbidfloat>0</forbidfloat>
+      <requirelowestterms>1</requirelowestterms>
+      <checkanswertype>0</checkanswertype>
+      <mustverify>0</mustverify>
+      <showvalidation>0</showvalidation>
+      <options></options>
+    </input>
+    <prt>
+      <name>prt1</name>
+      <value>1.0000000</value>
+      <autosimplify>1</autosimplify>
+      <feedbackstyle>1</feedbackstyle>
+      <feedbackvariables>
+        <text>/* ans1 = a; ans2 = b; ans3 = h; ans4 = k */
+
+a_ans:ans1;
+b_ans:ans2;
+h_ans:ans3;
+k_ans:ans4;
+
+hx_ans:a_ans*%e^(b_ans*(x+h_ans))+k_ans;</text>
+      </feedbackvariables>
+      <node>
+        <name>0</name>
+        <description></description>
+        <answertest>EqualComAss</answertest>
+        <sans>hx_ans</sans>
+        <tans>h(x)</tans>
+        <testoptions></testoptions>
+        <quiet>0</quiet>
+        <truescoremode>+</truescoremode>
+        <truescore>1</truescore>
+        <truepenalty></truepenalty>
+        <truenextnode>-1</truenextnode>
+        <trueanswernote>prt1-1-T</trueanswernote>
+        <truefeedback format="moodle_auto_format">
+          <text></text>
+        </truefeedback>
+        <falsescoremode>-</falsescoremode>
+        <falsescore>0</falsescore>
+        <falsepenalty></falsepenalty>
+        <falsenextnode>-1</falsenextnode>
+        <falseanswernote>prt1-1-F</falseanswernote>
+        <falsefeedback format="moodle_auto_format">
+          <text><![CDATA[<p>Die gezeichnete Funktion ist nicht korrekt.</p>]]></text>
+        </falsefeedback>
+      </node>
+    </prt>
+    <deployedseed>1438852609</deployedseed>
+    <deployedseed>1369128713</deployedseed>
+    <deployedseed>309338238</deployedseed>
+    <deployedseed>1720209655</deployedseed>
+    <deployedseed>1359121532</deployedseed>
+    <deployedseed>39950256</deployedseed>
+    <deployedseed>547826928</deployedseed>
+    <deployedseed>169238321</deployedseed>
+    <deployedseed>419204246</deployedseed>
+    <deployedseed>1607962516</deployedseed>
+    <deployedseed>172926687</deployedseed>
+    <deployedseed>1317559720</deployedseed>
+    <deployedseed>851246870</deployedseed>
+    <deployedseed>81566424</deployedseed>
+    <deployedseed>942207043</deployedseed>
+    <deployedseed>1004586713</deployedseed>
+    <deployedseed>1819170621</deployedseed>
+    <deployedseed>1177569320</deployedseed>
+    <deployedseed>1365668465</deployedseed>
+    <deployedseed>585515653</deployedseed>
+  </question>
+
+</quiz>

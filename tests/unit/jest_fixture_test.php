@@ -50,6 +50,10 @@ final class jest_fixture_test extends \advanced_testcase {
      */
     public function test_fixture_matches_definitions(): void {
         $file = __DIR__ . '/../jest/fixtures/definitions.json';
+        if (!is_dir(__DIR__ . '/../jest')) {
+            // The release archive leaves tests/jest out (.gitattributes); the repository has it.
+            $this->markTestSkipped('tests/jest is not part of the release archive');
+        }
         $this->assertFileExists($file);
         $fixture = json_decode(file_get_contents($file), true);
         $this->assertIsArray($fixture, 'The Jest definitions fixture is not valid JSON.');

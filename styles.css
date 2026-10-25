@@ -23,6 +23,14 @@
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+/*
+ * Colours. Every colour is a Bootstrap 5 variable first (--bs-*), with the value Moodle 4.5
+ * shows as fallback. Moodle 5.x defines the --bs-* variables and switches them in its dark colour
+ * mode (5.3+); Moodle 4.5 does not define them, so it keeps exactly the colours it had. The
+ * Bootstrap 4 names (--white, --gray-400, --primary ...) are not defined on 5.x, which is why they
+ * stay only as the inner fallback. Field edges use --bs-gray-500, the edge of Moodle's own inputs.
+ */
+
 /* ═══════════════════════════════════════════════════
    STACK MathEditor – Toolbar
    ═══════════════════════════════════════════════════ */
@@ -30,26 +38,72 @@
 .sme-toolbar {
     display: flex;
     flex-wrap: wrap;
-    gap: 2px;
-    padding: 4px;
-    background: #f8f9fa;
-    border: 1px solid #dee2e6;
+    /* The space between groups is the column gap, not a margin of the group: a gap is not
+       counted at the end of a line, so a group that fits the toolbar never has to break. */
+    gap: 2px 13px;
+    /* One pixel more on the right than the separator reaches past a group. */
+    padding: 4px 8px 4px 4px;
+    background: var(--bs-tertiary-bg, #f8f9fa);
+    border: 1px solid var(--bs-border-color, #dee2e6);
     border-radius: 4px 4px 0 0;
     border-bottom: none;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
 }
 
+/*
+ * A group never breaks by itself: up to five buttons it is one piece, and beyond that the
+ * clusters below hold the ends together.
+ */
 .sme-tb-group {
     display: inline-flex;
+    /*
+     * A group moves to the next line as a whole first: the toolbar breaks its lines by the
+     * groups' widths. Only a group that is wider than the whole toolbar on its own breaks inside,
+     * instead of reaching out of the toolbar. The group has no margin, padding or border of its
+     * own, so "wider than the toolbar" means its buttons, nothing else.
+     */
+    flex-wrap: wrap;
     gap: 2px;
-    margin-right: 6px;
-    padding-right: 6px;
-    border-right: 1px solid #dee2e6;
+    position: relative;
+    min-width: 0;
+    max-width: 100%;
 }
 
-.sme-tb-group:last-child {
-    border-right: none;
-    margin-right: 0;
-    padding-right: 0;
+/* The separator sits in the middle of the column gap and takes no space. */
+.sme-tb-group:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    bottom: 2px;
+    right: -7px;
+    border-right: 1px solid var(--bs-border-color, #dee2e6);
+    pointer-events: none;
+}
+
+/* Only a group of more than five buttons may break, and only between its clusters. */
+.sme-tb-group-wrap {
+    flex-wrap: wrap;
+}
+
+/*
+ * A cluster stays on one line, unless it is wider than the whole toolbar on its own; then it
+ * breaks inside rather than reaching out of the toolbar - the same rule as for a group.
+ */
+.sme-tb-cluster {
+    display: inline-flex;
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    gap: 2px;
+    min-width: 0;
+    max-width: 100%;
+    white-space: nowrap;
+}
+
+.sme-tb-btn {
+    flex: 0 0 auto;
 }
 
 .sme-tb-btn {
@@ -61,14 +115,66 @@
 }
 
 /* ═══════════════════════════════════════════════════
-   STACK MathEditor – Mobile / small-screen toolbar
-   Groups with class .sme-tb-group-wrap (>3 members)
-   become line-breakable on narrow viewports.
+   STACK MathEditor – narrow editors
+
+   What matters is the width of the editor, not of the
+   browser window: opening Moodle's navigation drawer
+   leaves the viewport alone and halves the space the
+   question has. The wrapper is therefore a query
+   container, and the toolbar asks it rather than the
+   window. The media query below stays as a fallback
+   for browsers without container queries.
    ═══════════════════════════════════════════════════ */
+
+/*
+ * Moodle's stylelint validates against a CSS syntax database that predates container queries,
+ * so it reports them as unknown. They are not: container queries are in every browser Moodle
+ * 4.5 supports. The rule is switched off for this block only.
+ */
+/* stylelint-disable csstree/validator */
+.sme-input-wrap,
+.sme-equiv-wrap {
+    container-type: inline-size;
+    container-name: smeeditor;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+}
+
+.sme-mq-container,
+.sme-equiv-rows {
+    min-width: 0;
+    max-width: 100%;
+}
+
+@container smeeditor (max-width: 900px) {
+    .sme-toolbar {
+        gap: 4px 13px;
+    }
+}
+
+@container smeeditor (max-width: 650px) {
+    .sme-toolbar {
+        gap: 4px 9px;
+        padding: 6px;
+    }
+
+    .sme-tb-group:not(:last-child)::after {
+        right: -5px;
+    }
+
+    .sme-tb-btn {
+        min-width: 36px;
+        min-height: 36px;
+        padding: 4px 8px;
+        font-size: 0.9em;
+    }
+}
+/* stylelint-enable csstree/validator */
 
 @media (max-width: 767px) {
     .sme-toolbar {
-        gap: 4px;
+        gap: 4px 9px;
         padding: 6px;
     }
 
@@ -76,9 +182,8 @@
         flex-wrap: wrap;
     }
 
-    .sme-tb-group {
-        margin-right: 4px;
-        padding-right: 4px;
+    .sme-tb-group:not(:last-child)::after {
+        right: -5px;
     }
 
     .sme-tb-btn {
@@ -100,9 +205,9 @@
 }
 
 .sme-mq-container {
-    border: 1px solid #ced4da;
+    border: 1px solid var(--bs-gray-500, #ced4da);
     border-radius: 0 0 4px 4px;
-    background: #fff;
+    background: var(--bs-body-bg, #fff);
     padding: 4px 6px;
     cursor: text;
 }
@@ -123,9 +228,9 @@
 }
 
 .sme-equiv-rows {
-    border: 1px solid #ced4da;
+    border: 1px solid var(--bs-gray-500, #ced4da);
     border-radius: 0 0 4px 4px;
-    background: #fff;
+    background: var(--bs-body-bg, #fff);
     padding: 4px;
     max-height: 500px;
     overflow-y: auto;
@@ -136,7 +241,7 @@
     align-items: center;
     gap: 4px;
     padding: 1px 4px;
-    border-bottom: 1px solid #f0f0f0;
+    border-bottom: 1px solid var(--bs-border-color-translucent, #f0f0f0);
 }
 
 .sme-equiv-row:last-child {
@@ -144,16 +249,16 @@
 }
 
 .sme-equiv-row-active {
-    background-color: #f8fbff;
+    background-color: var(--bs-tertiary-bg, #f8fbff);
     border-radius: 3px;
 }
 
 .sme-equiv-row:hover {
-    background-color: #f5f5f5;
+    background-color: var(--bs-secondary-bg, #f5f5f5);
 }
 
 .sme-equiv-row-active:hover {
-    background-color: #f8fbff;
+    background-color: var(--bs-tertiary-bg, #f8fbff);
 }
 
 .sme-equiv-num {
@@ -161,7 +266,7 @@
     min-width: 28px;
     text-align: right;
     padding-right: 8px;
-    color: #999;
+    color: var(--bs-secondary-color, #999);
     font-size: 0.82em;
     user-select: none;
     -webkit-user-select: none;
@@ -202,11 +307,11 @@
     display: block;
     width: 12px;
     flex: 0 0 8px;
-    border-left: 2px solid #444;
+    border-left: 2px solid var(--bs-body-color, #444);
 }
 
 .sme-equiv-system-brace::before {
-    border-top: 2px solid #444;
+    border-top: 2px solid var(--bs-body-color, #444);
     border-top-left-radius: 10px;
 }
 
@@ -214,11 +319,11 @@
     display: block;
     flex: 1 1 auto;
     width: 12px;
-    border-left: 2px solid #444;
+    border-left: 2px solid var(--bs-body-color, #444);
 }
 
 .sme-equiv-system-brace::after {
-    border-bottom: 2px solid #444;
+    border-bottom: 2px solid var(--bs-body-color, #444);
     border-bottom-left-radius: 10px;
 }
 
@@ -235,7 +340,7 @@
     align-items: center;
     gap: 4px;
     padding: 1px 0;
-    border-bottom: 1px solid #f0f0f0;
+    border-bottom: 1px solid var(--bs-border-color-translucent, #f0f0f0);
 }
 
 .sme-equiv-line:last-child {
@@ -251,7 +356,7 @@
 .sme-equiv-subdel {
     flex: 0 0 auto;
     min-width: 2rem;
-    color: #666;
+    color: var(--bs-secondary-color, #666);
     text-decoration: none;
     opacity: 0;
     transition: opacity 0.12s;
@@ -266,7 +371,7 @@
 .sme-equiv-subdel:hover,
 .sme-equiv-subdel:focus {
     opacity: 1;
-    color: #111;
+    color: var(--bs-emphasis-color, #111);
 }
 
 .sme-equiv-step-controls {
@@ -348,11 +453,11 @@
     display: block;
     width: 12px;
     flex: 0 0 8px;
-    border-left: 2px solid #444;
+    border-left: 2px solid var(--bs-body-color, #444);
 }
 
 .sme-system-brace-top {
-    border-top: 2px solid #444;
+    border-top: 2px solid var(--bs-body-color, #444);
     border-top-left-radius: 10px;
 }
 
@@ -360,12 +465,12 @@
     display: block;
     flex: 1 1 auto;
     width: 12px;
-    border-left: 2px solid #444;
+    border-left: 2px solid var(--bs-body-color, #444);
     margin-left: 0;
 }
 
 .sme-system-brace-bottom {
-    border-bottom: 2px solid #444;
+    border-bottom: 2px solid var(--bs-body-color, #444);
     border-bottom-left-radius: 10px;
 }
 
@@ -379,7 +484,7 @@
     align-items: center;
     gap: 4px;
     padding: 1px 0;
-    border-bottom: 1px solid #f0f0f0;
+    border-bottom: 1px solid var(--bs-border-color-translucent, #f0f0f0);
 }
 
 .sme-system-row:last-child {
@@ -387,7 +492,7 @@
 }
 
 .sme-system-row-active {
-    background: #f8fbff;
+    background: var(--bs-tertiary-bg, #f8fbff);
     border-radius: 3px;
 }
 
@@ -399,7 +504,7 @@
 
 .sme-system-del {
     flex: 0 0 auto;
-    color: #666;
+    color: var(--bs-secondary-color, #666);
     text-decoration: none;
 }
 
@@ -422,4 +527,230 @@
 .sme-tb-lbl-html sub {
     font-size: 0.7em;
     line-height: 1;
+}
+
+/* Matrix and vector popups. */
+.sme-structured-popup {
+    background: var(--bs-body-bg, var(--white, #fff));
+    border: 1px solid var(--bs-border-color, var(--gray-400, #ced4da));
+    border-radius: 0.25rem;
+    box-shadow: 0 0.25rem 0.5rem rgba(0, 0, 0, 0.2);
+    padding: 0.5rem;
+}
+
+.sme-matrix-grid-row {
+    display: flex;
+}
+
+.sme-matrix-grid-cell {
+    background: var(--bs-body-bg, var(--white, #fff));
+    border: 1px solid var(--bs-gray-500, var(--gray-400, #ced4da));
+    height: 1.4rem;
+    margin: 1px;
+    padding: 0;
+    width: 1.4rem;
+}
+
+.sme-matrix-grid-cell.sme-selected {
+    background: var(--bs-primary, var(--primary, #0f6cbf));
+    border-color: var(--bs-primary, var(--primary, #0f6cbf));
+}
+
+.sme-matrix-grid-cell:focus {
+    outline: 2px solid var(--bs-warning, var(--warning, #f0ad4e));
+    outline-offset: 1px;
+}
+
+.sme-vector-row {
+    display: flex;
+    gap: 0.25rem;
+    margin-bottom: 0.25rem;
+}
+
+.sme-vector-dimension,
+.sme-vector-orientation {
+    background: var(--bs-body-bg, var(--white, #fff));
+    border: 1px solid var(--bs-gray-500, var(--gray-400, #ced4da));
+    border-radius: 0.2rem;
+    padding: 0.1rem 0.4rem;
+}
+
+.sme-vector-dimension.sme-selected,
+.sme-vector-orientation.sme-selected {
+    background: var(--bs-primary, var(--primary, #0f6cbf));
+    border-color: var(--bs-primary, var(--primary, #0f6cbf));
+    color: var(--white, #fff);
+}
+
+.sme-structured-popup-label {
+    font-size: 0.85rem;
+    margin-top: 0.25rem;
+    white-space: nowrap;
+}
+
+/*
+ * A typed space is a multiplication boundary for STACK's space-sensitive "insert stars"
+ * variants: "a b" must be distinguishable from "ab" on screen. No symbol is drawn -
+ * a dot would mean explicit multiplication - only a little more room than a bare nbsp.
+ */
+.sme-mq-field .mq-space,
+.sme-mq-wrap .mq-space {
+    display: inline-block;
+    min-width: 0.35em;
+}
+
+/*
+ * On/off switch for the editor. Students switch it off to see more of the question on a
+ * small screen, or to type plain STACK syntax; the original input comes back in its place.
+ */
+.sme-toggle {
+    align-items: center;
+    display: flex;
+    gap: 0.4rem;
+    margin-bottom: 0.25rem;
+    min-height: 1.5rem;
+}
+
+.sme-toggle .sme-toggle-label {
+    /*
+     * Not --gray-600: #6a737b on white is 4.46:1, just under the 4.5:1 that WCAG AA asks for
+     * text this size, and axe says so. --gray-700 is 7:1. On Moodle 5.x the secondary text
+     * colour of the colour mode: 7:1 in light, 9:1 in dark.
+     */
+    color: var(--bs-secondary-color, var(--gray-700, #495057));
+    cursor: pointer;
+    font-size: 0.85rem;
+    margin: 0;
+}
+
+/* Fallback for themes without the Bootstrap switch: a small sliding switch of our own. */
+.sme-toggle .sme-toggle-input {
+    appearance: none;
+    -webkit-appearance: none;
+    background: var(--bs-gray-400, var(--gray-400, #ced4da));
+    border: 0;
+    border-radius: 0.65rem;
+    cursor: pointer;
+    height: 1.1rem;
+    margin: 0;
+    position: relative;
+    transition: background-color 0.15s ease-in-out;
+    width: 2rem;
+}
+
+.sme-toggle .sme-toggle-input::after {
+    background: var(--white, #fff);
+    border-radius: 50%;
+    content: "";
+    height: 0.9rem;
+    left: 0.1rem;
+    position: absolute;
+    top: 0.1rem;
+    transition: left 0.15s ease-in-out;
+    width: 0.9rem;
+}
+
+.sme-toggle .sme-toggle-input:checked {
+    background: var(--bs-primary, var(--primary, #0f6cbf));
+}
+
+.sme-toggle .sme-toggle-input:checked::after {
+    left: 1rem;
+}
+
+.sme-toggle .sme-toggle-input:focus-visible {
+    outline: 2px solid var(--bs-warning, var(--warning, #f0ad4e));
+    outline-offset: 2px;
+}
+
+.sme-hidden {
+    display: none;
+}
+
+/*
+ * The original STACK input while the editor is on: clipped to one pixel, never display:none, so
+ * it keeps its place in the accessibility tree and STACK's validation feedback stays where it
+ * belongs. No offset to a side: in a right-to-left page RTLCSS flips a "left" offset to the
+ * right, which would put the input outside the window.
+ */
+.sme-original-hidden {
+    border: 0;
+    clip: rect(0, 0, 0, 0);
+    clip-path: inset(50%);
+    height: 1px;
+    margin: -1px;
+    max-width: 1px;
+    overflow: hidden;
+    padding: 0;
+    position: absolute;
+    white-space: nowrap;
+    width: 1px;
+}
+
+/*
+ * STACK gives the input an inline width and limits it with ".que.stack input[type=text]
+ * {max-width: 100%}"; the cap needs a selector above that one so the clipped input keeps one
+ * pixel and cannot widen a narrow page.
+ */
+.que.stack input.sme-original-hidden[type],
+.que.stack textarea.sme-original-hidden {
+    max-width: 1px;
+}
+
+/*
+ * Pointer selection in the choosers.
+ *
+ * touch-action: none is what stops the page from scrolling while a finger draws a matrix size;
+ * without it the browser claims the gesture as a scroll before the first pointermove arrives.
+ */
+.sme-matrix-grid,
+.sme-vector-pad {
+    touch-action: none;
+}
+
+.sme-vector-pad {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 0.4rem;
+}
+
+.sme-vector-pad-cell {
+    background: var(--bs-secondary-bg, var(--gray-200, #e9ecef));
+    border: 1px solid var(--bs-gray-500, var(--gray-400, #ced4da));
+    border-radius: 0.15rem;
+    height: 1.4rem;
+    width: 1.4rem;
+}
+
+.sme-vector-pad-cell.sme-selected {
+    background: var(--bs-primary, var(--primary, #0f6cbf));
+    border-color: var(--bs-primary, var(--primary, #0f6cbf));
+}
+
+.sme-vector-pad-column {
+    flex-direction: column;
+}
+
+/*
+ * Right-to-left pages. Mathematics is written left to right in every language: the formula in
+ * the editor, the symbols on the toolbar buttons (∂²/∂x∂y, ∠ABC) and the rows and columns of the
+ * matrix and vector choosers keep that direction, isolated from the page around them. The
+ * toolbar itself follows the page: its first group starts on the right. The popup label is
+ * language text and takes the direction of its own content.
+ * Moodle builds its right-to-left stylesheet with RTLCSS, which would turn these into
+ * direction: rtl; the rtl:ignore directive keeps them as written.
+ */
+.sme-mq-container .mq-editable-field,
+.sme-equiv-rows .mq-editable-field,
+.sme-tb-btn,
+.sme-matrix-grid,
+.sme-vector-pad,
+.sme-vector-row {
+    /*rtl:ignore*/
+    direction: ltr;
+    unicode-bidi: isolate;
+}
+
+.sme-structured-popup-label {
+    unicode-bidi: plaintext;
 }

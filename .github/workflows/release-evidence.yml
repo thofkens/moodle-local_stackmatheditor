@@ -1,0 +1,159 @@
+# Release evidence for one exact commit (#69).
+#
+# The main workflow answers "does the code work". This one answers "is this artefact
+# releasable": it runs the gates that are otherwise manual - browser, accessibility,
+# dependency audit, load smoke - against one SHA that the caller names, and collects the
+# result in a single artefact.
+#
+# Option B of the issue, deliberately: not every check on every push, but no stable release
+# without evidence for exactly the artefact that is released.
+
+name: release evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 'Commit to certify (defaults to the ref this runs on)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out the commit under test
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Record what is being certified
+        run: |
+          mkdir -p evidence
+          {
+            echo "repository: ${{ github.repository }}"
+            echo "commit: $(git rev-parse HEAD)"
+            echo "commit date: $(git show -s --format=%cI HEAD)"
+            echo "workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo "started: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo ""
+            echo "version.php:"
+            grep -E '\$plugin->(version|release|maturity)' version.php
+            echo ""
+            echo "vendored MathQuill:"
+            grep -E 'Version:|Upstream base:|Fork commit:' thirdparty/readme_moodle.txt || true
+            echo ""
+            echo "checksums of the vendored runtime files:"
+            sha256sum thirdparty/mathquill/mathquill.js \
+                      thirdparty/mathquill/mathquill.min.js \
+                      thirdparty/mathquill/mathquill.css
+          } | tee evidence/artefact.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      - name: Dependency audit
+        continue-on-error: true
+        run: |
+          for dir in tests/jest tests/playwright; do
+            if [ -f "$dir/package-lock.json" ]; then
+              echo "=== $dir" | tee -a evidence/dependency-audit.txt
+              # What would ship: nothing under tests/ is in the release archive, so in practice
+              # this is empty - but if a runtime dependency ever appears, this is where it shows.
+              (cd "$dir" && npm audit --omit=dev --audit-level=high) \
+                2>&1 | tee -a evidence/dependency-audit.txt | tee -a evidence/runtime-audit.txt || true
+              echo "--- including dev dependencies (advisory only)" \
+                | tee -a evidence/dependency-audit.txt
+              (cd "$dir" && npm audit) 2>&1 | tee -a evidence/dependency-audit.txt || true
+            fi
+          done
+
+      - name: Release artefact
+        run: |
+          git archive --format=zip --prefix=stackmatheditor/ HEAD \
+            -o evidence/stackmatheditor.zip
+          unzip -l evidence/stackmatheditor.zip | tee evidence/artefact-contents.txt
+          sha256sum evidence/stackmatheditor.zip | tee -a evidence/artefact.txt
+
+      # The other workflows have to have run on this very commit, finished, and green; the
+      # Playwright run with one green job each for Moodle 4.5 and 5.3. A release that cites a
+      # run from three commits ago, or one still running, cites nothing. The check lives in a
+      # script so that its result is its exit code - no status variable set inside a pipeline.
+      - name: Require the code, browser, screen reader and load runs on this SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          rc=0
+          bash .github/required-runs.sh "${{ github.repository }}" "$sha" > evidence/required-runs.txt || rc=$?
+          cat evidence/required-runs.txt
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::A required run is missing, unfinished or not green for $sha."
+            echo "Start the missing workflows on this commit, wait for them, and run this again." \
+              | tee -a evidence/required-runs.txt
+            exit 1
+          fi
+
+      - name: Dependency findings are not advisory here
+        run: |
+          # The audit above runs with continue-on-error so that the evidence is collected even
+          # when it fails. For a release, a high or critical finding is a stop (#69).
+          #
+          # Only runtime findings stop it. Everything under tests/ is a development tool and is
+          # excluded from the release archive; its findings are recorded above and assessed in
+          # docs/DEPENDENCY-AUDIT.md, but a DoS in a test runner's glob matcher is not a defect
+          # of the plugin a site installs (#69: dev-only advisories are not runtime blockers).
+          if grep -qiE '[0-9]+ (high|critical)' evidence/runtime-audit.txt 2>/dev/null; then
+            echo "::error::High or critical dependency findings; assess them before releasing."
+            exit 1
+          fi
+
+      - name: What still needs a human
+        run: |
+          # The sign-off file as it stands on this commit; release-artefact.yml refuses a stable
+          # tag while an item is open.
+          python3 .github/check-signoff.py . > evidence/signoff.txt || true
+          cat evidence/signoff.txt
+          zipsum=$(sha256sum evidence/stackmatheditor.zip | cut -d' ' -f1)
+          {
+            echo "Release candidate"
+            echo "  commit:          $(git rev-parse HEAD)"
+            echo "  archive SHA-256: $zipsum"
+            echo "  evidence run:    ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo ""
+            echo "Required runs on this commit (all green, links in required-runs.txt):"
+            sed -n 's/^  /  /p' evidence/required-runs.txt
+            echo ""
+            echo "Measured automatically in playwright.yml (a11y-zoom.spec.js), no manual step:"
+            echo "  200 and 400 per cent zoom with the core workflow, a narrow viewport,"
+            echo "  24 x 24 targets, keyboard reach, visible focus."
+            echo ""
+            echo "Judgement a workflow cannot make, and the risks accepted instead:"
+            echo "  recorded in docs/RELEASE-SIGNOFF.json (status, date, by); state on this commit:"
+            sed 's/^/  /' evidence/signoff.txt
+            echo "  How to make the checks: docs/MANUAL-ACCEPTANCE.md. A stable tag is refused"
+            echo "  while an item is open."
+            echo ""
+            echo "After the GitHub release (docs/RELEASE-CHECKLIST.md, section 3):"
+            echo "  upload exactly the ZIP of the GitHub release to the Moodle plugins directory,"
+            echo "  check it with 'sha256sum -c <zip>.sha256' first, and note the SHA-256 in the"
+            echo "  release issue."
+          } | tee evidence/manual-checklist.txt
+
+      - name: Upload the evidence
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-evidence-${{ github.run_id }}
+          path: evidence
+          retention-days: 90
+          if-no-files-found: warn

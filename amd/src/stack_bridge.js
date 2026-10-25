@@ -14,13 +14,13 @@
 // along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * Bridge between the visible MathQuill editors and the original STACK inputs (#48).
+ * Bridge between the visible MathQuill editors and the original STACK inputs.
  *
  * Guiding invariant: the expression visible in MathQuill is the expression STACK receives.
  *
  * - triggerValidation(): tells STACK (and any other script) that the original input changed.
  *   Exactly one native "input" and one native "change" event. Native events reach jQuery
- *   handlers as well, so the former extra jQuery triggers only produced duplicates.
+ *   handlers as well, so additional jQuery triggers would only produce duplicates.
  * - register(flush): every editor registers a function that writes its current state into the
  *   original input without raising events. All of them run in a capture-phase listener before
  *   a form is submitted (and already on pointerdown of a submit button), so "Check" and
@@ -32,7 +32,7 @@
  *   When that can have happened, validation of the current value is requested once more;
  *   STACK answers from its cache if the value was already validated.
  *
- * Integration contract for external scripts (#43) - see README.md, "Integration events".
+ * Integration contract for external scripts - see README.md, "Integration events".
  * All events bubble and carry detail.source = 'local_stackmatheditor':
  * - stackmatheditor:input        on the original input, after the editor changed its value;
  * - stackmatheditor:enter        on the original input, for Enter in the visible editor and
@@ -123,7 +123,7 @@ define([], function() {
     }
 
     /**
-     * Signal an Enter of the visible editor to integrations (#43).
+     * Signal an Enter of the visible editor to integrations.
      *
      * The documented CustomEvent bubbles. The keyboard mirror does not: listeners on the
      * original field receive an Enter keydown/keyup they would otherwise never see, while
